@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "celery-mongobeat"
+version = "0.1.0"
+authors = [
+    { name = "William Thomas", email = "52611686+sockmysox@users.noreply.github.com" },
+]
+description = "A Celery Beat scheduler that stores the schedule in MongoDB."
+readme = "README.md"
+license = { file = "LICENSE" }
+keywords = ["celery", "beat", "scheduler", "mongodb", "mongo"]
+requires-python = ">=3.7"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "celery>=5.0",
+    "pymongo>=3.12",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/sockmysox/celery-mongobeat"
+"Bug Tracker" = "https://github.com/sockmysox/celery-mongobeat/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.entry-points."celery.beat_schedulers"]
+"celery_mongobeat.schedulers:MongoScheduler" = "celery_mongobeat.beat:CustomMongoScheduler"
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "mongomock",
+]
