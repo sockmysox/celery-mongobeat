@@ -9,6 +9,7 @@ deprecated `celerybeat-mongo` library.
 """
 import datetime
 import time
+from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Union
 
 from celery.beat import Scheduler, ScheduleEntry
@@ -74,7 +75,15 @@ class CustomMongoScheduler(Scheduler):
             legacy_kwargs = {k: v for k, v in settings.items() if k not in ['uri', 'host', 'database', 'collection']}
             client_kwargs.update(legacy_kwargs)
 
-        logger.info(f"Connecting to MongoDB for scheduler: {mongo_uri}/{db_name}")
+        # Redact the password from the URI before logging to prevent credential exposure.
+        parsed_uri = urlparse(mongo_uri)
+        if parsed_uri.password:
+            safe_uri = parsed_uri._replace(netloc=f"{parsed_uri.username}:****@{parsed_uri.hostname}:{parsed_uri.port}").geturl()
+        else:
+            safe_uri = mongo_uri
+
+        logger.info(f"Connecting to MongoDB for scheduler: {safe_uri}")
+        logger.info(f"Using database: '{db_name}', collection: '{collection_name}'")
         try:
             # Ensure appname is set, but allow user to override it.
             final_kwargs = {'appname': 'celery-mongobeat', **client_kwargs}
@@ -109,6 +118,8 @@ class CustomMongoScheduler(Scheduler):
         # Store the original last_run_at from the database on the entry.
         # This is used by sync() to detect if the task has run.
         entry._last_run_at = doc.get('last_run_at')
+        # Store max_run_count on the entry to check against in sync()
+        entry.max_run_count = doc.get('max_run_count')
         return entry
 
     def _schedule_from_document(self, doc: Dict[str, Any]) -> Union[schedule, crontab, solar]:
@@ -199,12 +210,22 @@ class CustomMongoScheduler(Scheduler):
             # We only sync entries that were loaded from the database, marked by `_last_run_at`.
             if hasattr(entry, '_last_run_at') and entry.last_run_at != entry._last_run_at:
                 logger.debug(f"Preparing to update task state for '{entry.name}' in database.")
+                update_fields = {
+                    'last_run_at': entry.last_run_at,
+                    'total_run_count': entry.total_run_count
+                }
+
+                # If max_run_count is set and reached, disable the task.
+                if entry.max_run_count is not None and entry.total_run_count >= entry.max_run_count:
+                    logger.info(
+                        f"Task '{entry.name}' has reached its max_run_count of {entry.max_run_count}. "
+                        f"Disabling task."
+                    )
+                    update_fields['enabled'] = False
+
                 updates.append(UpdateOne(
                     {'name': entry.name},
-                    {'$set': {
-                        'last_run_at': entry.last_run_at,
-                        'total_run_count': entry.total_run_count
-                    }}
+                    {'$set': update_fields}
                 ))
                 # Update our in-memory copy to prevent re-syncing if the task doesn't run again.
                 entry._last_run_at = entry.last_run_at

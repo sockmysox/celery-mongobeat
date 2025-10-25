@@ -4,10 +4,15 @@ A modern, drop-in replacement for `celerybeat-mongo`. This project provides a Ce
 
 ## Features
 
-- **Dynamic Task Scheduling**: Add, modify, and remove periodic tasks on the fly.
+- **Stable and Reliable**: Fixes critical bugs from `celerybeat-mongo`, such as the issue where disabling one task would prevent all tasks from running.
+- **Dynamic Task Management**: Add, modify, and remove periodic tasks on the fly without restarting the beat service.
 - **MongoDB Backend**: Leverages MongoDB for a robust and scalable schedule store.
+- **Fine-Grained Control**:
+  - **Run Count Limiting**: Use `max_run_count` to run a task a specific number of times and then automatically disable it.
+- **Flexible Configuration**: Full support for advanced `pymongo.MongoClient` options (like SSL) via `mongodb_scheduler_client_kwargs`.
 - **Backwards Compatible**: Designed as a drop-in replacement for the deprecated `celerybeat-mongo`. It supports the legacy `mongodb_backend_settings` configuration.
 - **Modern Tooling**: Built with a modern Python packaging structure (`pyproject.toml`).
+- **All Schedule Types**: Natively supports `interval`, `crontab`, and `solar` schedules.
 
 ## Installation
 
@@ -74,7 +79,7 @@ class ScheduleManager:
     def __init__(self, collection: Collection):
         self.collection = collection
 
-    def create_interval_task(self, name: str, task: str, every: int, period: str = 'seconds', args=None, kwargs=None):
+    def create_interval_task(self, name: str, task: str, every: int, period: str = 'seconds', args=None, kwargs=None, max_run_count: int = None):
         """Creates a task that runs on a fixed interval."""
         args = args or []
         kwargs = kwargs or {}
@@ -86,6 +91,9 @@ class ScheduleManager:
             'args': args,
             'kwargs': kwargs,
         }
+        if max_run_count is not None:
+            schedule_doc['max_run_count'] = max_run_count
+
         self.collection.update_one(
             {'name': name},
             {'$set': schedule_doc},
@@ -141,6 +149,15 @@ manager.create_interval_task(
     every=30,
     period='seconds',
     args=[1, 2, 3]
+)
+
+# Example: Create a task that runs 5 times and then stops
+manager.create_interval_task(
+    name='run-five-times-task',
+    task='your_project.tasks.some_task',
+    every=60,
+    period='seconds',
+    max_run_count=5
 )
 
 ```
