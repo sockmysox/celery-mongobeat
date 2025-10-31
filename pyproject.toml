@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "celery-mongobeat"
-version = "0.1.7"
+version = "0.1.8"
 authors = [
     { name = "William Thomas", email = "52611686+sockmysox@users.noreply.github.com" },
 ]

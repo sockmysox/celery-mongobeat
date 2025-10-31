@@ -94,15 +94,14 @@ This allows you to easily create, update, and disable tasks from within your app
 ### Example Usage
 
 ```python
-# In your application's setup code
-from pymongo import MongoClient
+# In your application code (e.g., a management script or view)
+from celery import current_app
 from celery_mongobeat.helpers import ScheduleManager
 
-client = MongoClient("mongodb://localhost:27017/")
-db = client["celery"]
-schedules_collection = db["schedules"]  # Must match your celery-mongobeat config
-
-manager = ScheduleManager(schedules_collection)
+# The recommended way to get a manager instance.
+# It automatically reads the database configuration from your Celery settings.
+app = current_app._get_current_object()
+manager = ScheduleManager.from_celery_app(app)
 
 # Example: Create a task to run every 30 seconds
 manager.create_interval_task(
@@ -163,12 +162,11 @@ class AppScheduleManager(ScheduleManager):
         print(f"Scheduled daily report for user {user_id}.")
 
 # In your application code, you can now use this custom manager:
+# from celery import current_app
 # from your_app.scheduling import AppScheduleManager
-# from pymongo import MongoClient
 
-# client = MongoClient("mongodb://localhost:27017/")
-# schedules_collection = client["celery"]["schedules"]
-# app_manager = AppScheduleManager(schedules_collection)
+# app = current_app._get_current_object()
+# app_manager = AppScheduleManager.from_celery_app(app)
 # app_manager.create_user_report_task(user_id=123)
 ```
 

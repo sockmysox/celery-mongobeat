@@ -22,6 +22,36 @@ class ScheduleManager:
     def __init__(self, collection: Collection):
         self.collection = collection
 
+    @classmethod
+    def from_celery_app(cls, app: Celery, client: Optional[MongoClient] = None) -> 'ScheduleManager':
+        """
+        Creates a ScheduleManager instance from a Celery app object.
+
+        This is the recommended way to get a manager instance, as it automatically
+        uses the database configuration from your Celery settings.
+
+        :param app: The Celery application instance.
+        :param client: An optional, existing `MongoClient` instance. If not provided,
+                       a new one will be created based on the app configuration.
+        :return: An initialized ScheduleManager instance.
+        """
+        conf = app.conf
+        mongo_uri = conf.get('mongodb_scheduler_url', conf.get('CELERY_MONGODB_SCHEDULER_URL', 'mongodb://localhost:27017/'))
+        db_name = conf.get('mongodb_scheduler_db', conf.get('CELERY_MONGODB_SCHEDULER_DB', 'celery'))
+        collection_name = conf.get('mongodb_scheduler_collection', conf.get('CELERY_MONGODB_SCHEDULER_COLLECTION', 'schedules'))
+        client_kwargs = conf.get('mongodb_scheduler_client_kwargs', {})
+
+        if client is None:
+            # Ensure appname is set, but allow user to override it.
+            final_kwargs = {'appname': 'celery-mongobeat-helper', **client_kwargs}
+            client = MongoClient(mongo_uri, **final_kwargs)
+
+        db = client[db_name]
+        collection = db[collection_name]
+
+        # The user of the manager is responsible for the client's lifecycle (e.g., calling client.close()).
+        return cls(collection)
+
     def create_interval_task(
             self, name: str, task: str, every: int, period: str = 'seconds',
             args: Optional[List[Any]] = None, kwargs: Optional[Dict[str, Any]] = None,
