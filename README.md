@@ -128,4 +128,60 @@ print("Upserted limited-run task: 'run-five-times-task'")
 manager.disable_task('my-periodic-task')
 print("Disabled task: 'my-periodic-task'")
 
+# Example: Get all enabled interval tasks
+enabled_interval_tasks = manager.get_tasks(enabled=True, schedule_type='interval')
+print(f"Found {len(enabled_interval_tasks)} enabled interval tasks.")
+for task in enabled_interval_tasks:
+    print(f" - {task['name']}")
+
+```
+
+### Advanced Usage: Subclassing and Direct Database Access
+
+The `ScheduleManager` is designed to be a flexible base. For more complex applications, it is highly recommended to subclass it to create a domain-specific API for your tasks. This encapsulates your application's scheduling logic, making your code cleaner and more maintainable.
+ 
+**1. Subclassing `ScheduleManager`**
+
+```python
+# In your_app/scheduling.py
+
+from celery_mongobeat.helpers import ScheduleManager
+
+class AppScheduleManager(ScheduleManager):
+    """A custom manager for our application's specific tasks."""
+
+    def create_user_report_task(self, user_id: int):
+        """Creates a recurring daily report for a specific user."""
+        task_name = f"user-report-{user_id}"
+        super().create_crontab_task(
+            name=task_name,
+            task='your_app.tasks.generate_report',
+            kwargs={'user_id': user_id},
+            minute='0',  # At the start of the hour
+            hour='3'     # At 3 AM
+        )
+        print(f"Scheduled daily report for user {user_id}.")
+
+# In your application code, you can now use this custom manager:
+# from your_app.scheduling import AppScheduleManager
+# from pymongo import MongoClient
+
+# client = MongoClient("mongodb://localhost:27017/")
+# schedules_collection = client["celery"]["schedules"]
+# app_manager = AppScheduleManager(schedules_collection)
+# app_manager.create_user_report_task(user_id=123)
+```
+
+**2. Direct Database Access**
+
+For advanced queries, such as MongoDB aggregation pipelines, you can and should use the `pymongo` collection object that you used to initialize the manager. This gives you the full power of `pymongo` for any use case not directly covered by the helper.
+
+```python
+# For example, to find the most common task paths using an aggregation:
+pipeline = [
+    {"$group": {"_id": "$task", "count": {"$sum": 1}}},
+    {"$sort": {"count": -1}}
+]
+most_common_tasks = list(schedules_collection.aggregate(pipeline))
+print("Most common tasks:", most_common_tasks)
 ```

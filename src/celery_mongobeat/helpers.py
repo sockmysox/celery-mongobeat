@@ -111,3 +111,77 @@ class ScheduleManager:
         :param name: The unique name of the task to disable.
         """
         self.collection.update_one({'name': name}, {'$set': {'enabled': False}})
+
+    def enable_task(self, name: str):
+        """
+        Enables a task by its unique name, allowing it to be scheduled.
+
+        :param name: The unique name of the task to enable.
+        """
+        self.collection.update_one({'name': name}, {'$set': {'enabled': True}})
+
+    def get_task(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves a task document from the database by its unique name.
+
+        :param name: The unique name of the task to retrieve.
+        :return: A dictionary representing the task document, or None if not found.
+        """
+        return self.collection.find_one({'name': name})
+
+    def delete_task(self, name: str):
+        """
+        Permanently deletes a task from the schedule by its unique name.
+
+        :param name: The unique name of the task to delete.
+        """
+        self.collection.delete_one({'name': name})
+
+    def get_tasks(self, **filters: Any) -> List[Dict[str, Any]]:
+        """
+        Retrieves a list of task documents from the database, with optional filtering.
+
+        This method allows for flexible querying using keyword arguments.
+        - For simple filters: `get_tasks(enabled=True)`
+        - For schedule type: `get_tasks(schedule_type='interval')`
+        - For nested fields (like in kwargs): `get_tasks(kwargs__customer_id=123)`
+
+        :param filters: Keyword arguments to use as a query filter.
+        :return: A list of dictionaries, where each dictionary is a task document.
+        """
+        query: Dict[str, Any] = {}
+        for key, value in filters.items():
+            if key == 'schedule_type':
+                if value not in ['interval', 'crontab', 'solar']:
+                    raise ValueError("schedule_type must be one of 'interval', 'crontab', or 'solar'")
+                query[value] = {'$exists': True}
+            else:
+                # Convert double-underscore notation to dot notation for nested queries
+                # e.g., kwargs__customer_id -> kwargs.customer_id
+                mongo_key = key.replace('__', '.')
+                query[mongo_key] = value
+
+        return list(self.collection.find(query))
+
+    def count_tasks(self, **filters: Any) -> int:
+        """
+        Counts task documents in the database, with optional filtering.
+
+        This is more efficient than `len(get_tasks(...))` as it performs
+        the count on the database server. It allows for flexible querying
+        using keyword arguments, similar to `get_tasks`.
+
+        :param filters: Keyword arguments to use as a query filter.
+        :return: The number of tasks matching the filter.
+        """
+        query: Dict[str, Any] = {}
+        for key, value in filters.items():
+            if key == 'schedule_type':
+                if value not in ['interval', 'crontab', 'solar']:
+                    raise ValueError("schedule_type must be one of 'interval', 'crontab', or 'solar'")
+                query[value] = {'$exists': True}
+            else:
+                mongo_key = key.replace('__', '.')
+                query[mongo_key] = value
+
+        return self.collection.count_documents(query)
