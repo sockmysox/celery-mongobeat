@@ -1,6 +1,16 @@
 # Celery-MongoBeat
 
+<!--
+[![PyPI Version](https://img.shields.io/pypi/v/celery-mongobeat.svg)](https://pypi.org/project/celery-mongobeat/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/celery-mongobeat)](https://pypi.org/project/celery-mongobeat)
+[![License](https://img.shields.io/pypi/l/celery-mongobeat.svg)](https://opensource.org/licenses/Apache-2.0)
+-->
+
 A modern, drop-in replacement for `celerybeat-mongo`. This project provides a Celery Beat scheduler that stores and retrieves task schedules from a MongoDB collection, allowing for dynamic management of periodic tasks without restarting the Celery Beat service.
+
+## Why `celery-mongobeat`?
+
+The original `celerybeat-mongo` library is no longer actively maintained and contains several critical bugs. This project was created to provide a stable, reliable, and modern alternative for the community, ensuring continued support for dynamic, database-backed Celery schedules.
 
 ## Features
 
@@ -10,7 +20,7 @@ A modern, drop-in replacement for `celerybeat-mongo`. This project provides a Ce
 - **Fine-Grained Control**:
   - **Run Count Limiting**: Use `max_run_count` to run a task a specific number of times and then automatically disable it.
 - **Flexible Configuration**: Full support for advanced `pymongo.MongoClient` options (like SSL) via `mongodb_scheduler_client_kwargs`.
-- **Backwards Compatible**: Designed as a drop-in replacement for the deprecated `celerybeat-mongo`. It supports the legacy `mongodb_backend_settings` configuration.
+- **Backwards Compatible**: Supports legacy configuration variables from `celerybeat-mongo` for a smoother transition.
 - **Modern Tooling**: Built with a modern Python packaging structure (`pyproject.toml`).
 - **All Schedule Types**: Natively supports `interval`, `crontab`, and `solar` schedules.
 
@@ -35,23 +45,34 @@ mongodb_scheduler_url = "mongodb://localhost:27017/"
 mongodb_scheduler_db = "celery"
 mongodb_scheduler_collection = "schedules"
 
-beat_scheduler = "celery_mongobeat.schedulers:MongoScheduler"
+beat_scheduler = "celery_mongobeat.beat:MongoScheduler"
+```
+
+## Migrating from `celerybeat-mongo`
+
+`celery-mongobeat` is designed as a near drop-in replacement, but there is one important configuration change you must make when migrating:
+
+*   **Update the Scheduler Path**: The import path for the scheduler has been updated to align with modern package structures and Celery best practices.
+
+You must change your `beat_scheduler` setting from:
+`'celerybeat_mongo.schedulers.MongoScheduler'` (the old path)
+to:
+`'celery_mongobeat.beat:MongoScheduler'` (the new path)
 ```
 
 ### Legacy (Backwards-Compatible) Configuration
 
-If you are migrating from `celerybeat-mongo`, you can use your existing configuration.
+If you are migrating from `celerybeat-mongo`, this library provides backward compatibility for the uppercase configuration variables. Modern, lowercase settings (e.g., `mongodb_scheduler_url`) will always take precedence.
 
 ```python
 # celeryconfig.py
 
-mongodb_backend_settings = {
-    "host": "mongodb://localhost:27017/",
-    "database": "celery",
-    "collection": "schedules"
-}
+# Legacy uppercase individual settings (from celerybeat-mongo)
+CELERY_MONGODB_SCHEDULER_URL = "mongodb://localhost:27017/"
+CELERY_MONGODB_SCHEDULER_DB = "celery"
+CELERY_MONGODB_SCHEDULER_COLLECTION = "schedules"
 
-beat_scheduler = "celery_mongobeat.schedulers:MongoScheduler"
+beat_scheduler = "celery_mongobeat.beat:MongoScheduler"
 ```
 
 ## Usage
