@@ -38,9 +38,18 @@ class ScheduleManager:
         :return: An initialized ScheduleManager instance.
         """
         conf = app.conf
-        mongo_uri = conf.get('mongodb_scheduler_url', conf.get('CELERY_MONGODB_SCHEDULER_URL', 'mongodb://localhost:27017/'))
-        db_name = conf.get('mongodb_scheduler_db', conf.get('CELERY_MONGODB_SCHEDULER_DB', 'celery'))
-        collection_name = conf.get('mongodb_scheduler_collection', conf.get('CELERY_MONGODB_SCHEDULER_COLLECTION', 'schedules'))
+        # Use the same robust `or` logic as the main scheduler to ensure consistent config loading.
+        mongo_uri = (conf.get('mongodb_scheduler_url') or
+                     conf.get('CELERY_MONGODB_SCHEDULER_URL') or
+                     'mongodb://localhost:27017/')
+
+        db_name = (conf.get('mongodb_scheduler_db') or
+                   conf.get('CELERY_MONGODB_SCHEDULER_DB') or
+                   'celery')
+
+        collection_name = (conf.get('mongodb_scheduler_collection') or
+                           conf.get('CELERY_MONGODB_SCHEDULER_COLLECTION') or
+                           'schedules')
         client_kwargs = conf.get('mongodb_scheduler_client_kwargs', {})
 
         if client is None:
