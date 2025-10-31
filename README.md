@@ -87,79 +87,20 @@ You can now manage your schedules by adding, updating, or removing documents in 
 
 ## Programmatic Usage Example
 
-While you can manage schedules by inserting raw documents into MongoDB, it's often cleaner to use a helper class within your application. Here is an example of a `ScheduleManager` class that you could use in your project to programmatically create, update, and find tasks.
+For users who prefer a programmatic API over manually inserting documents into MongoDB, `celery-mongobeat` provides a convenient `ScheduleManager` helper class.
 
-This example is framework-agnostic and uses `pymongo` directly.
+This allows you to easily create, update, and disable tasks from within your application code.
 
-```python
-from pymongo.collection import Collection
-
-class ScheduleManager:
-    """A helper class to manage schedule entries in MongoDB."""
-
-    def __init__(self, collection: Collection):
-        self.collection = collection
-
-    def create_interval_task(self, name: str, task: str, every: int, period: str = 'seconds', args=None, kwargs=None, max_run_count: int = None):
-        """Creates a task that runs on a fixed interval."""
-        args = args or []
-        kwargs = kwargs or {}
-        schedule_doc = {
-            'name': name,
-            'task': task,
-            'enabled': True,
-            'interval': {'every': every, 'period': period},
-            'args': args,
-            'kwargs': kwargs,
-        }
-        if max_run_count is not None:
-            schedule_doc['max_run_count'] = max_run_count
-
-        self.collection.update_one(
-            {'name': name},
-            {'$set': schedule_doc},
-            upsert=True
-        )
-        print(f"Upserted interval task: '{name}'")
-
-    def create_crontab_task(self, name: str, task: str, minute='*', hour='*', day_of_week='*', args=None, kwargs=None):
-        """Creates a task that runs on a crontab schedule."""
-        args = args or []
-        kwargs = kwargs or {}
-        schedule_doc = {
-            'name': name,
-            'task': task,
-            'enabled': True,
-            'crontab': {'minute': minute, 'hour': hour, 'day_of_week': day_of_week},
-            'args': args,
-            'kwargs': kwargs,
-        }
-        self.collection.update_one(
-            {'name': name},
-            {'$set': schedule_doc},
-            upsert=True
-        )
-        print(f"Upserted crontab task: '{name}'")
-
-    def disable_task(self, name: str):
-        """Disables a task by its unique name."""
-        self.collection.update_one(
-            {'name': name},
-            {'$set': {'enabled': False}}
-        )
-        print(f"Disabled task: '{name}'")
-
-```
-
-You could then use this manager in your application like so:
+### Example Usage
 
 ```python
 # In your application's setup code
 from pymongo import MongoClient
+from celery_mongobeat.helpers import ScheduleManager
 
 client = MongoClient("mongodb://localhost:27017/")
 db = client["celery"]
-schedules_collection = db["schedules"] # Must match your celery-mongobeat config
+schedules_collection = db["schedules"]  # Must match your celery-mongobeat config
 
 manager = ScheduleManager(schedules_collection)
 
@@ -171,6 +112,7 @@ manager.create_interval_task(
     period='seconds',
     args=[1, 2, 3]
 )
+print("Upserted interval task: 'my-periodic-task'")
 
 # Example: Create a task that runs 5 times and then stops
 manager.create_interval_task(
@@ -180,5 +122,10 @@ manager.create_interval_task(
     period='seconds',
     max_run_count=5
 )
+print("Upserted limited-run task: 'run-five-times-task'")
+
+# Example: Disable a task
+manager.disable_task('my-periodic-task')
+print("Disabled task: 'my-periodic-task'")
 
 ```
