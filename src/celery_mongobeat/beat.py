@@ -22,7 +22,7 @@ from pymongo.errors import ConnectionFailure
 logger = get_logger(__name__)
 
 
-class CustomMongoScheduler(Scheduler):
+class MongoScheduler(Scheduler):
     """
     A Celery Beat scheduler that uses MongoDB to store the schedule.
 
@@ -35,7 +35,7 @@ class CustomMongoScheduler(Scheduler):
         """
         Initializes the scheduler, setting up the database connection.
         """
-        logger.info("Initializing CustomMongoScheduler...")
+        logger.info("Initializing MongoScheduler...")
         self._client = None
         self._collection: Optional[Collection] = None
         # self._schedule is initialized by the parent `Scheduler` class, but we
@@ -51,29 +51,21 @@ class CustomMongoScheduler(Scheduler):
         Connects to MongoDB using settings from the Celery app configuration.
         This is called automatically by the parent class `__init__`.
         """
-        # Modern configuration keys
-        mongo_uri = self.app.conf.get('mongodb_scheduler_url', 'mongodb://localhost:27017/')
-        db_name = self.app.conf.get('mongodb_scheduler_db', 'celery')
-        collection_name = self.app.conf.get('mongodb_scheduler_collection', 'schedules')
+        # Prioritize modern (lowercase) settings, then fall back for backward compatibility.
+        mongo_uri = self.app.conf.get(
+            'mongodb_scheduler_url',
+            self.app.conf.get('CELERY_MONGODB_SCHEDULER_URL', 'mongodb://localhost:27017/')
+        )
+        db_name = self.app.conf.get(
+            'mongodb_scheduler_db',
+            self.app.conf.get('CELERY_MONGODB_SCHEDULER_DB', 'celery')
+        )
+        collection_name = self.app.conf.get(
+            'mongodb_scheduler_collection',
+            self.app.conf.get('CELERY_MONGODB_SCHEDULER_COLLECTION', 'schedules')
+        )
         self.replace_dots = self.app.conf.get('mongodb_scheduler_replace_dots', False)
         client_kwargs = self.app.conf.get('mongodb_scheduler_client_kwargs', {})
-
-        # Backwards compatibility with celerybeat-mongo's `mongodb_backend_settings`
-        if 'mongodb_backend_settings' in self.app.conf:
-            logger.warning(
-                "Using deprecated 'mongodb_backend_settings'. Please update your "
-                "configuration to use 'mongodb_scheduler_url', 'mongodb_scheduler_db', "
-                "and 'mongodb_scheduler_collection' for better clarity."
-            )
-            settings = self.app.conf['mongodb_backend_settings']
-            # The old library used 'host' for the URI.
-            mongo_uri = settings.get('uri', settings.get('host', mongo_uri))
-            db_name = settings.get('database', db_name)
-            collection_name = settings.get('collection', collection_name)
-            # For backwards compatibility, pass any other settings as kwargs,
-            # allowing for things like SSL configuration.
-            legacy_kwargs = {k: v for k, v in settings.items() if k not in ['uri', 'host', 'database', 'collection']}
-            client_kwargs.update(legacy_kwargs)
 
         # Redact the password from the URI before logging to prevent credential exposure.
         parsed_uri = urlparse(mongo_uri)
@@ -236,7 +228,7 @@ class CustomMongoScheduler(Scheduler):
 
     def close(self):
         """Closes the database connection when the scheduler shuts down."""
-        logger.info("Closing CustomMongoScheduler MongoDB connection.")
+        logger.info("Closing MongoScheduler MongoDB connection.")
         if self._client:
             self._client.close()
 
