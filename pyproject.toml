@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "celery-mongobeat"
-version = "0.1.8"
+version = "0.1.9"
 authors = [
     { name = "William Thomas", email = "52611686+sockmysox@users.noreply.github.com" },
 ]
@@ -39,10 +39,11 @@ dependencies = [
 where = ["src"]
 
 [project.entry-points."celery.beat_schedulers"]
-"celery_mongobeat.schedulers:MongoScheduler" = "celery_mongobeat.beat:CustomMongoScheduler"
+"celery_mongobeat.beat:MongoScheduler" = "celery_mongobeat.beat:MongoScheduler"
 
 [project.optional-dependencies]
 test = [
-    "pytest",
+    "ephem",  # Required for solar schedule tests
     "mongomock",
+    "pytest",
 ]

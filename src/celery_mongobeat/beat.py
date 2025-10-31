@@ -51,19 +51,20 @@ class MongoScheduler(Scheduler):
         Connects to MongoDB using settings from the Celery app configuration.
         This is called automatically by the parent class `__init__`.
         """
-        # Prioritize modern (lowercase) settings, then fall back for backward compatibility.
-        mongo_uri = self.app.conf.get(
-            'mongodb_scheduler_url',
-            self.app.conf.get('CELERY_MONGODB_SCHEDULER_URL', 'mongodb://localhost:27017/')
-        )
-        db_name = self.app.conf.get(
-            'mongodb_scheduler_db',
-            self.app.conf.get('CELERY_MONGODB_SCHEDULER_DB', 'celery')
-        )
-        collection_name = self.app.conf.get(
-            'mongodb_scheduler_collection',
-            self.app.conf.get('CELERY_MONGODB_SCHEDULER_COLLECTION', 'schedules')
-        )
+        # Prioritize modern (lowercase) settings, falling back to legacy uppercase settings.
+        # The `or` operator correctly handles cases where a modern setting exists but is `None`.
+        mongo_uri = (self.app.conf.get('mongodb_scheduler_url') or
+                     self.app.conf.get('CELERY_MONGODB_SCHEDULER_URL') or
+                     'mongodb://localhost:27017/')
+
+        db_name = (self.app.conf.get('mongodb_scheduler_db') or
+                   self.app.conf.get('CELERY_MONGODB_SCHEDULER_DB') or
+                   'celery')
+
+        collection_name = (self.app.conf.get('mongodb_scheduler_collection') or
+                           self.app.conf.get('CELERY_MONGODB_SCHEDULER_COLLECTION') or
+                           'schedules')
+
         self.replace_dots = self.app.conf.get('mongodb_scheduler_replace_dots', False)
         client_kwargs = self.app.conf.get('mongodb_scheduler_client_kwargs', {})
 
@@ -103,7 +104,7 @@ class MongoScheduler(Scheduler):
             args=doc.get('args', []),  # type: ignore
             kwargs=doc.get('kwargs', {}),  # type: ignore
             options=doc.get('options', {}),  # type: ignore
-            last_run_at=doc.get('last_run_at', self._default_now()),
+            last_run_at=doc.get('last_run_at', self.app.now()),
             total_run_count=doc.get('total_run_count', 0),
             app=self.app
         )
@@ -197,7 +198,6 @@ class MongoScheduler(Scheduler):
             return
 
         logger.debug('Syncing schedule to MongoDB...')
-        updates = []
         for entry in self.schedule.values():
             # We only sync entries that were loaded from the database, marked by `_last_run_at`.
             if hasattr(entry, '_last_run_at') and entry.last_run_at != entry._last_run_at:
@@ -215,16 +215,12 @@ class MongoScheduler(Scheduler):
                     )
                     update_fields['enabled'] = False
 
-                updates.append(UpdateOne(
-                    {'name': entry.name},
-                    {'$set': update_fields}
-                ))
+                self._collection.update_one({'name': entry.name}, {'$set': update_fields})
+
                 # Update our in-memory copy to prevent re-syncing if the task doesn't run again.
                 entry._last_run_at = entry.last_run_at
+                logger.info(f"Synced task '{entry.name}' to MongoDB.")
 
-        if updates:
-            logger.info(f"Syncing {len(updates)} updated task(s) to MongoDB.")
-            self._collection.bulk_write(updates, ordered=False)
 
     def close(self):
         """Closes the database connection when the scheduler shuts down."""
