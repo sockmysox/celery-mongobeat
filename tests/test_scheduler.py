@@ -3,10 +3,12 @@ Tests for the MongoScheduler and ScheduleManager.
 """
 import datetime
 import time
+import json
 from unittest.mock import MagicMock
 
 import pytest
 from celery.schedules import crontab, schedule, solar
+from bson import ObjectId
 from mongomock import MongoClient
 
 # from celery_mongobeat.beat import MongoScheduler
@@ -325,3 +327,32 @@ class TestScheduleManager:
         filtered_by_kwarg = manager.get_tasks(kwargs__id=1)
         assert len(filtered_by_kwarg) == 1
         assert filtered_by_kwarg[0]['name'] == 'interval-1'
+
+    def test_document_serialization(self, manager):
+        """Test the document serialization helper methods."""
+        now = datetime.datetime.now(datetime.timezone.utc)
+        doc_id = ObjectId()
+        original_doc = {
+            '_id': doc_id,
+            'name': 'serializable-task',
+            'last_run_at': now,
+            'total_run_count': 5
+        }
+
+        # Test document_to_serializable_dict
+        serializable_dict = manager.document_to_serializable_dict(original_doc)
+        assert isinstance(serializable_dict['_id'], str)
+        assert serializable_dict['_id'] == str(doc_id)
+        assert isinstance(serializable_dict['last_run_at'], str)
+        assert serializable_dict['last_run_at'] == now.isoformat()
+        assert serializable_dict['name'] == 'serializable-task'
+
+        # Test document_to_json
+        json_string = manager.document_to_json(original_doc, indent=2)
+        assert isinstance(json_string, str)
+
+        # Verify the content of the JSON string by parsing it back
+        parsed_json = json.loads(json_string)
+        assert parsed_json['_id'] == str(doc_id)
+        assert parsed_json['last_run_at'] == now.isoformat()
+        assert parsed_json['name'] == 'serializable-task'
