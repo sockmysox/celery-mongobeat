@@ -278,13 +278,23 @@ class TestScheduleManager:
         assert manager.collection.name == 'schedules'
 
     def test_create_and_get_task(self, manager):
-        """Test creating and retrieving a task."""
-        manager.create_interval_task('test-get', 'tasks.get', 1, 'seconds', args=[1], kwargs={'a': 1})
+        """Test creating, updating, and retrieving a task, and verify ObjectId return."""
+        # 1. Test creation: A new task should return its ObjectId.
+        task_id = manager.create_interval_task('test-get', 'tasks.get', 1, 'seconds', args=[1], kwargs={'a': 1})
+        assert isinstance(task_id, ObjectId)
+
+        # 2. Test retrieval: The retrieved task should have the correct data.
         task = manager.get_task('test-get')
         assert task is not None
+        assert task['_id'] == task_id
         assert task['task'] == 'tasks.get'
         assert task['args'] == [1]
         assert task['kwargs'] == {'a': 1}
+
+        # 3. Test update: Updating the same task should return the same ObjectId.
+        updated_task_id = manager.create_interval_task('test-get', 'tasks.get.updated', 2, 'seconds')
+        assert isinstance(updated_task_id, ObjectId)
+        assert updated_task_id == task_id
 
     def test_enable_disable_task(self, manager):
         """Test enabling and disabling a task."""
