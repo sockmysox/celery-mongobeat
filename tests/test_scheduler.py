@@ -3,7 +3,6 @@ Tests for the MongoScheduler and ScheduleManager.
 """
 import datetime
 import time
-import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -328,31 +327,33 @@ class TestScheduleManager:
         assert len(filtered_by_kwarg) == 1
         assert filtered_by_kwarg[0]['name'] == 'interval-1'
 
-    def test_document_serialization(self, manager):
-        """Test the document serialization helper methods."""
+    def test_get_task_with_serialization(self, manager):
+        """Test the `serialize` flag on get_task and get_tasks."""
         now = datetime.datetime.now(datetime.timezone.utc)
-        doc_id = ObjectId()
-        original_doc = {
-            '_id': doc_id,
-            'name': 'serializable-task',
-            'last_run_at': now,
-            'total_run_count': 5
-        }
+        manager.create_interval_task('serialize-test', 'tasks.test', 1, 'seconds')
+        manager.collection.update_one(
+            {'name': 'serialize-test'},
+            {'$set': {'last_run_at': now}}
+        )
 
-        # Test document_to_serializable_dict
-        serializable_dict = manager.document_to_serializable_dict(original_doc)
-        assert isinstance(serializable_dict['_id'], str)
-        assert serializable_dict['_id'] == str(doc_id)
-        assert isinstance(serializable_dict['last_run_at'], str)
-        assert serializable_dict['last_run_at'] == now.isoformat()
-        assert serializable_dict['name'] == 'serializable-task'
+        # Test get_task with serialization
+        task = manager.get_task('serialize-test', serialize=True)
+        assert task is not None
+        assert isinstance(task['_id'], str)
+        # Parse the serialized datetime string and compare with a tolerance
+        # to account for potential precision loss during DB serialization.
+        # The string from isoformat on a naive datetime is naive, so we make it aware.
+        serialized_dt_naive = datetime.datetime.fromisoformat(task['last_run_at'])
+        serialized_dt_aware = serialized_dt_naive.replace(tzinfo=datetime.timezone.utc)
+        assert abs(serialized_dt_aware - now) < datetime.timedelta(seconds=1)
 
-        # Test document_to_json
-        json_string = manager.document_to_json(original_doc, indent=2)
-        assert isinstance(json_string, str)
-
-        # Verify the content of the JSON string by parsing it back
-        parsed_json = json.loads(json_string)
-        assert parsed_json['_id'] == str(doc_id)
-        assert parsed_json['last_run_at'] == now.isoformat()
-        assert parsed_json['name'] == 'serializable-task'
+        # Test get_tasks with serialization
+        tasks = manager.get_tasks(serialize=True, name='serialize-test')
+        assert len(tasks) == 1
+        assert isinstance(tasks[0]['_id'], str)
+        # Also check the timestamp from the get_tasks result
+        serialized_dt_from_list_naive = datetime.datetime.fromisoformat(tasks[0]['last_run_at'])
+        serialized_dt_from_list_aware = serialized_dt_from_list_naive.replace(
+            tzinfo=datetime.timezone.utc
+        )
+        assert abs(serialized_dt_from_list_aware - now) < datetime.timedelta(seconds=1)

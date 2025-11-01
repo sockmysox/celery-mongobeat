@@ -3,7 +3,6 @@ Provides helper classes for programmatically managing Celery Beat schedules
 in MongoDB.
 """
 import datetime
-import json
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
@@ -27,43 +26,34 @@ class ScheduleManager:
     def __init__(self, collection: Collection):
         self.collection = collection
 
-    @staticmethod
-    def document_to_serializable_dict(doc: Dict[str, Any]) -> Dict[str, Any]:
+    def _sanitize_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Converts a MongoDB document into a JSON-serializable dictionary.
-
-        This is a helper for users who need to serialize schedule documents
-        retrieved from the database. It handles converting BSON types like
-        `ObjectId` and `datetime` to their string representations.
-
-        :param doc: The MongoDB document (as a dictionary) to convert.
-        :return: A dictionary with BSON types converted to JSON-friendly types.
+        Recursively converts a MongoDB task document into a JSON-serializable dictionary.
+        This handles BSON types like ObjectId and datetime.
         """
-        if not doc:
+        if not task:
             return {}
 
-        serializable_doc = doc.copy()
-        for key, value in serializable_doc.items():
+        sanitized = {}
+        for key, value in task.items():
             if isinstance(value, ObjectId):
-                serializable_doc[key] = str(value)
+                sanitized[key] = str(value)
             elif isinstance(value, datetime.datetime):
-                serializable_doc[key] = value.isoformat()
-        return serializable_doc
+                sanitized[key] = value.isoformat()
+            elif isinstance(value, dict):
+                sanitized[key] = self._sanitize_task(value)
+            elif isinstance(value, list):
+                sanitized[key] = [
+                    self._sanitize_task(item) if isinstance(item, dict) else item
+                    for item in value
+                ]
+            elif isinstance(value, (str, int, float, bool, type(None))):
+                sanitized[key] = value
+            else:
+                # Fallback for any other non-serializable types
+                sanitized[key] = str(value)
 
-    @classmethod
-    def document_to_json(cls, doc: Dict[str, Any], **kwargs) -> str:
-        """
-        Converts a MongoDB document directly to a JSON string.
-
-        This is a convenience method that uses `document_to_serializable_dict`
-        and then calls `json.dumps`.
-
-        :param doc: The MongoDB document to convert.
-        :param kwargs: Keyword arguments to pass to `json.dumps` (e.g., `indent=2`).
-        :return: A JSON string representation of the document.
-        """
-        serializable_dict = cls.document_to_serializable_dict(doc)
-        return json.dumps(serializable_dict, **kwargs)
+        return sanitized
 
     @classmethod
     def from_celery_app(cls, app: Celery, client: Optional[MongoClient] = None) -> 'ScheduleManager':
@@ -202,14 +192,18 @@ class ScheduleManager:
         """
         self.collection.update_one({'name': name}, {'$set': {'enabled': True}})
 
-    def get_task(self, name: str) -> Optional[Dict[str, Any]]:
+    def get_task(self, name: str, serialize: bool = False) -> Optional[Dict[str, Any]]:
         """
         Retrieves a task document from the database by its unique name.
 
         :param name: The unique name of the task to retrieve.
+        :param serialize: If True, converts BSON types to JSON-friendly types.
         :return: A dictionary representing the task document, or None if not found.
         """
-        return self.collection.find_one({'name': name})
+        task = self.collection.find_one({'name': name})
+        if task and serialize:
+            return self._sanitize_task(task)
+        return task
 
     def delete_task(self, name: str):
         """
@@ -219,7 +213,7 @@ class ScheduleManager:
         """
         self.collection.delete_one({'name': name})
 
-    def get_tasks(self, **filters: Any) -> List[Dict[str, Any]]:
+    def get_tasks(self, serialize: bool = False, **filters: Any) -> List[Dict[str, Any]]:
         """
         Retrieves a list of task documents from the database, with optional filtering.
 
@@ -228,6 +222,7 @@ class ScheduleManager:
         - For schedule type: `get_tasks(schedule_type='interval')`
         - For nested fields (like in kwargs): `get_tasks(kwargs__customer_id=123)`
 
+        :param serialize: If True, converts BSON types to JSON-friendly types for each document.
         :param filters: Keyword arguments to use as a query filter.
         :return: A list of dictionaries, where each dictionary is a task document.
         """
@@ -243,9 +238,12 @@ class ScheduleManager:
                 mongo_key = key.replace('__', '.')
                 query[mongo_key] = value
 
-        return list(self.collection.find(query))
+        tasks = list(self.collection.find(query))
+        if serialize:
+            return [self._sanitize_task(task) for task in tasks]
+        return tasks
 
-    def count_tasks(self, **filters: Any) -> int:
+    def count_tasks(self, **filters: Any) -> int:  # count_tasks does not need a serialize flag
         """
         Counts task documents in the database, with optional filtering.
 
