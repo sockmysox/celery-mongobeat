@@ -94,14 +94,12 @@ This allows you to easily create, update, and disable tasks from within your app
 ### Example Usage
 
 ```python
-# In your application code (e.g., a management script or view)
-from celery import current_app
+# In your application code (e.g., a Flask view, Django management command, etc.)
 from celery_mongobeat.helpers import ScheduleManager
 
-# The recommended way to get a manager instance.
-# It automatically reads the database configuration from your Celery settings.
-app = current_app._get_current_object()
-manager = ScheduleManager.from_celery_app(app)
+# Get a manager instance. This automatically finds the current Celery app
+# and uses its configuration to connect to MongoDB.
+manager = ScheduleManager.from_celery_app()
 
 # Example: Create a task to run every 30 seconds
 manager.create_interval_task(

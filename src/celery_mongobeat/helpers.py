@@ -6,7 +6,7 @@ import datetime
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
-from celery import Celery
+from celery import Celery, current_app as celery_current_app
 from pymongo import MongoClient
 from pymongo.collection import Collection
 
@@ -56,18 +56,22 @@ class ScheduleManager:
         return sanitized
 
     @classmethod
-    def from_celery_app(cls, app: Celery, client: Optional[MongoClient] = None) -> 'ScheduleManager':
+    def from_celery_app(cls, app: Optional[Celery] = None, client: Optional[MongoClient] = None) -> 'ScheduleManager':
         """
         Creates a ScheduleManager instance from a Celery app object.
 
         This is the recommended way to get a manager instance, as it automatically
         uses the database configuration from your Celery settings.
 
-        :param app: The Celery application instance.
+        :param app: The Celery application instance. If not provided, it will be
+                    retrieved automatically from `celery.current_app`.
         :param client: An optional, existing `MongoClient` instance. If not provided,
                        a new one will be created based on the app configuration.
         :return: An initialized ScheduleManager instance.
         """
+        if app is None:
+            app = celery_current_app._get_current_object()
+
         conf = app.conf
         # Use the same robust `or` logic as the main scheduler to ensure consistent config loading.
         mongo_uri = (conf.get('mongodb_scheduler_url') or

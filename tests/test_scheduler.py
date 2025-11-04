@@ -277,6 +277,25 @@ class TestScheduleManager:
         assert manager.collection.database.name == 'test_db'
         assert manager.collection.name == 'schedules'
 
+    def test_from_celery_app_auto_discovery(self, celery_app, mock_mongo_client, monkeypatch):
+        """
+        Test that from_celery_app correctly discovers the current app when none is provided.
+        """
+        # Patch `celery.current_app` to return our test app fixture
+        mock_current_app = MagicMock()
+        mock_current_app._get_current_object.return_value = celery_app
+        monkeypatch.setattr('src.celery_mongobeat.helpers.celery_current_app', mock_current_app)
+
+        # Patch MongoClient to use the mock client
+        monkeypatch.setattr('src.celery_mongobeat.helpers.MongoClient', lambda *args, **kwargs: mock_mongo_client)
+
+        # Call from_celery_app without an app argument to test auto-discovery
+        manager = ScheduleManager.from_celery_app()
+
+        # Assert that the manager was configured correctly from the discovered app
+        assert manager.collection.database.name == 'test_db'
+        assert manager.collection.name == 'schedules'
+
     def test_create_and_get_task(self, manager):
         """Test creating, updating, and retrieving a task, and verify ObjectId return."""
         # 1. Test creation: A new task should return its ObjectId.
