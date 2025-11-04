@@ -109,7 +109,7 @@ task_doc = manager.create_interval_task(
     period='seconds',
     args=[1, 2, 3]
 )
-print(f"Upserted interval task '{task_doc['name']}' with ID: {task_doc['_id']}")
+print(f"Upserted task '{task_doc['name']}' with ID: {task_doc['_id']}")
 
 # Example: Create a task with a description and other custom fields
 manager.create_crontab_task(
@@ -130,25 +130,25 @@ manager.create_interval_task(
     period='seconds',
     max_run_count=5
 )
-print("Upserted limited-run task: 'run-five-times-task'")
+print("Upserted task 'run-five-times-task' that will run 5 times.")
 
 # Example: Retrieve a task by its name or ID
 task_by_name = manager.get_task(name='my-periodic-task')
 task_by_id = manager.get_task(id=task_doc['_id'])
-print(f"Retrieved task '{task_by_name['name']}' by its name.")
-print(f"Retrieved task '{task_by_id['name']}' by its ID.")
+print(f"Retrieved task '{task_by_name['name']}' by name.")
+print(f"Retrieved task '{task_by_id['name']}' by ID.")
 
 # Example: Disable a task (the task remains in the database)
 manager.disable_task(name='my-periodic-task')
 print("Disabled task 'my-periodic-task'.")
 
 # Example: Delete a task (the task is permanently removed)
-manager.delete_task(name='run-five-times-task')
-print("Deleted task 'run-five-times-task'.")
+manager.delete_task(id=task_doc['_id'])
+print(f"Deleted task with ID: {task_doc['_id']}")
 
 # Example: Get all remaining enabled tasks
 remaining_tasks = manager.get_tasks(enabled=True)
-print(f"Found {len(remaining_tasks)} remaining enabled tasks.")
+print(f"\nFound {len(remaining_tasks)} remaining enabled tasks:")
 for task in remaining_tasks:
     print(f" - {task['name']} (ID: {task['_id']})")
 
@@ -156,7 +156,7 @@ for task in remaining_tasks:
 
 The `create_*_task` methods are designed to be flexible. You can use Python's keyword argument unpacking (`**`) to create tasks from a dictionary. This is especially useful when processing data from an API or another data source.
 
-Any extra keys in the dictionary that do not match a defined method parameter will be saved as custom fields in the task document.
+Any keys in the dictionary that do not match a defined method parameter (like `name`, `task`, `every`, etc.) will be saved as custom fields in the task document.
 
 ```python
 # Example data that might come from a web form or API
@@ -166,8 +166,9 @@ task_data = {
     'every': 15,
     'period': 'minutes',
     'args': [12345],
-    'metadata': 'Created by API endpoint /tasks',  # This key will be ignored
-    'request_id': 'xyz-789'                        # This key will also be ignored
+    'description': 'Process data from the API.',
+    'owner': 'api-service',          # This will be saved as a custom field
+    'request_id': 'xyz-789'          # This will also be saved
 }
 
 task_doc = manager.create_interval_task(**task_data)
@@ -215,12 +216,16 @@ class AppScheduleManager(ScheduleManager):
 
 For advanced queries, such as MongoDB aggregation pipelines, you can and should use the `pymongo` collection object that you used to initialize the manager. This gives you the full power of `pymongo` for any use case not directly covered by the helper.
 
+You can access the collection object directly from the manager instance:
+
 ```python
+# schedules_collection = manager.collection
+
 # For example, to find the most common task paths using an aggregation:
 pipeline = [
     {"$group": {"_id": "$task", "count": {"$sum": 1}}},
     {"$sort": {"count": -1}}
 ]
-most_common_tasks = list(schedules_collection.aggregate(pipeline))
+# most_common_tasks = list(schedules_collection.aggregate(pipeline))
 print("Most common tasks:", most_common_tasks)
 ```
