@@ -102,14 +102,14 @@ from celery_mongobeat.helpers import ScheduleManager
 manager = ScheduleManager.from_celery_app()
 
 # Example: Create a task to run every 30 seconds
-manager.create_interval_task(
+task_doc = manager.create_interval_task(
     name='my-periodic-task',
     task='your_project.tasks.some_task',
     every=30,
     period='seconds',
     args=[1, 2, 3]
 )
-print("Upserted interval task: 'my-periodic-task'")
+print(f"Upserted interval task '{task_doc['name']}' with ID: {task_doc['_id']}")
 
 # Example: Create a task with a description
 manager.create_crontab_task(
@@ -158,8 +158,8 @@ task_data = {
     'request_id': 'xyz-789'  # This key will also be ignored
 }
 
-task_id = manager.create_interval_task(**task_data)
-print(f"Successfully created task from dictionary with ID: {task_id}")
+task_doc = manager.create_interval_task(**task_data)
+print(f"Successfully created task from dictionary with ID: {task_doc['_id']}")
 ```
 
 ```

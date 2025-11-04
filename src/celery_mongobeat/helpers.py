@@ -103,7 +103,7 @@ class ScheduleManager:
             args: Optional[List[Any]] = None, kwargs: Optional[Dict[str, Any]] = None,
             max_run_count: Optional[int] = None, description: Optional[str] = None,
             extra_fields: Optional[Dict[str, Any]] = None, **_: Any
-    ) -> Optional[ObjectId]:
+    ) -> Optional[Dict[str, Any]]:
         """
         Creates or updates a task that runs on a fixed interval.
 
@@ -116,7 +116,7 @@ class ScheduleManager:
         :param max_run_count: The maximum number of times the task can run before being disabled.
         :param description: A human-readable description of the task.
         :param extra_fields: A dictionary of additional fields to store with the task document.
-        :return: The ObjectId of the created or updated task.
+        :return: The full document of the created or updated task, or None on failure.
         """
         schedule_doc = {
             'name': name,
@@ -135,20 +135,15 @@ class ScheduleManager:
         if extra_fields:
             schedule_doc.update(extra_fields)
 
-        result = self.collection.update_one({'name': name}, {'$set': schedule_doc}, upsert=True)
-
-        if result.upserted_id:
-            return result.upserted_id
-        else:
-            task_doc = self.collection.find_one({'name': name}, {'_id': 1})
-            return task_doc['_id'] if task_doc else None
+        self.collection.update_one({'name': name}, {'$set': schedule_doc}, upsert=True)
+        return self.collection.find_one({'name': name})
 
     def create_crontab_task(
             self, name: str, task: str, minute: str = '*', hour: str = '*',
             day_of_week: str = '*', day_of_month: str = '*', month_of_year: str = '*',
             args: Optional[List[Any]] = None, kwargs: Optional[Dict[str, Any]] = None,
             description: Optional[str] = None, extra_fields: Optional[Dict[str, Any]] = None, **_: Any
-    ) -> Optional[ObjectId]:
+    ) -> Optional[Dict[str, Any]]:
         """
         Creates or updates a task that runs on a crontab schedule.
 
@@ -163,7 +158,7 @@ class ScheduleManager:
         :param kwargs: A dictionary of keyword arguments for the task.
         :param description: A human-readable description of the task.
         :param extra_fields: A dictionary of additional fields to store with the task document.
-        :return: The ObjectId of the created or updated task.
+        :return: The full document of the created or updated task, or None on failure.
         """
         schedule_doc = {
             'name': name,
@@ -183,19 +178,14 @@ class ScheduleManager:
         if extra_fields:
             schedule_doc.update(extra_fields)
 
-        result = self.collection.update_one({'name': name}, {'$set': schedule_doc}, upsert=True)
-
-        if result.upserted_id:
-            return result.upserted_id
-        else:
-            task_doc = self.collection.find_one({'name': name}, {'_id': 1})
-            return task_doc['_id'] if task_doc else None
+        self.collection.update_one({'name': name}, {'$set': schedule_doc}, upsert=True)
+        return self.collection.find_one({'name': name})
 
     def create_solar_task(
             self, name: str, task: str, event: str, lat: float, lon: float,
             args: Optional[List[Any]] = None, kwargs: Optional[Dict[str, Any]] = None,
             description: Optional[str] = None, extra_fields: Optional[Dict[str, Any]] = None, **_: Any
-    ) -> Optional[ObjectId]:
+    ) -> Optional[Dict[str, Any]]:
         """
         Creates or updates a task that runs on a solar event schedule (e.g., sunrise, sunset).
 
@@ -208,7 +198,7 @@ class ScheduleManager:
         :param kwargs: A dictionary of keyword arguments for the task.
         :param description: A human-readable description of the task.
         :param extra_fields: A dictionary of additional fields to store with the task document.
-        :return: The ObjectId of the created or updated task.
+        :return: The full document of the created or updated task, or None on failure.
         """
         schedule_doc = {
             'name': name, 'task': task, 'enabled': True,
@@ -222,13 +212,8 @@ class ScheduleManager:
         if extra_fields:
             schedule_doc.update(extra_fields)
 
-        result = self.collection.update_one({'name': name}, {'$set': schedule_doc}, upsert=True)
-
-        if result.upserted_id:
-            return result.upserted_id
-        else:
-            task_doc = self.collection.find_one({'name': name}, {'_id': 1})
-            return task_doc['_id'] if task_doc else None
+        self.collection.update_one({'name': name}, {'$set': schedule_doc}, upsert=True)
+        return self.collection.find_one({'name': name})
 
     def disable_task(self, name: str):
         """
