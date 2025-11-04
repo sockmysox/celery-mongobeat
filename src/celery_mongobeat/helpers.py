@@ -101,8 +101,7 @@ class ScheduleManager:
     def create_interval_task(
             self, name: str, task: str, every: int, period: str = 'seconds',
             args: Optional[List[Any]] = None, kwargs: Optional[Dict[str, Any]] = None,
-            max_run_count: Optional[int] = None, description: Optional[str] = None,
-            extra_fields: Optional[Dict[str, Any]] = None, **_: Any
+            max_run_count: Optional[int] = None, description: Optional[str] = None, **custom_fields: Any
     ) -> Optional[Dict[str, Any]]:
         """
         Creates or updates a task that runs on a fixed interval.
@@ -115,7 +114,7 @@ class ScheduleManager:
         :param kwargs: A dictionary of keyword arguments for the task.
         :param max_run_count: The maximum number of times the task can run before being disabled.
         :param description: A human-readable description of the task.
-        :param extra_fields: A dictionary of additional fields to store with the task document.
+        :param custom_fields: Any additional keyword arguments will be saved as fields in the task document.
         :return: The full document of the created or updated task, or None on failure.
         """
         schedule_doc = {
@@ -132,8 +131,8 @@ class ScheduleManager:
         if description:
             schedule_doc['description'] = description
 
-        if extra_fields:
-            schedule_doc.update(extra_fields)
+        # Merge any custom fields provided by the user
+        schedule_doc.update(custom_fields)
 
         self.collection.update_one({'name': name}, {'$set': schedule_doc}, upsert=True)
         return self.collection.find_one({'name': name})
@@ -141,8 +140,8 @@ class ScheduleManager:
     def create_crontab_task(
             self, name: str, task: str, minute: str = '*', hour: str = '*',
             day_of_week: str = '*', day_of_month: str = '*', month_of_year: str = '*',
-            args: Optional[List[Any]] = None, kwargs: Optional[Dict[str, Any]] = None,
-            description: Optional[str] = None, extra_fields: Optional[Dict[str, Any]] = None, **_: Any
+            args: Optional[List[Any]] = None, kwargs: Optional[Dict[str, Any]] = None, description: Optional[str] = None,
+            **custom_fields: Any
     ) -> Optional[Dict[str, Any]]:
         """
         Creates or updates a task that runs on a crontab schedule.
@@ -157,7 +156,7 @@ class ScheduleManager:
         :param args: A list of positional arguments for the task.
         :param kwargs: A dictionary of keyword arguments for the task.
         :param description: A human-readable description of the task.
-        :param extra_fields: A dictionary of additional fields to store with the task document.
+        :param custom_fields: Any additional keyword arguments will be saved as fields in the task document.
         :return: The full document of the created or updated task, or None on failure.
         """
         schedule_doc = {
@@ -175,8 +174,8 @@ class ScheduleManager:
         if description:
             schedule_doc['description'] = description
 
-        if extra_fields:
-            schedule_doc.update(extra_fields)
+        # Merge any custom fields provided by the user
+        schedule_doc.update(custom_fields)
 
         self.collection.update_one({'name': name}, {'$set': schedule_doc}, upsert=True)
         return self.collection.find_one({'name': name})
@@ -184,7 +183,7 @@ class ScheduleManager:
     def create_solar_task(
             self, name: str, task: str, event: str, lat: float, lon: float,
             args: Optional[List[Any]] = None, kwargs: Optional[Dict[str, Any]] = None,
-            description: Optional[str] = None, extra_fields: Optional[Dict[str, Any]] = None, **_: Any
+            description: Optional[str] = None, **custom_fields: Any
     ) -> Optional[Dict[str, Any]]:
         """
         Creates or updates a task that runs on a solar event schedule (e.g., sunrise, sunset).
@@ -197,7 +196,7 @@ class ScheduleManager:
         :param args: A list of positional arguments for the task.
         :param kwargs: A dictionary of keyword arguments for the task.
         :param description: A human-readable description of the task.
-        :param extra_fields: A dictionary of additional fields to store with the task document.
+        :param custom_fields: Any additional keyword arguments will be saved as fields in the task document.
         :return: The full document of the created or updated task, or None on failure.
         """
         schedule_doc = {
@@ -209,8 +208,8 @@ class ScheduleManager:
         if description:
             schedule_doc['description'] = description
 
-        if extra_fields:
-            schedule_doc.update(extra_fields)
+        # Merge any custom fields provided by the user
+        schedule_doc.update(custom_fields)
 
         self.collection.update_one({'name': name}, {'$set': schedule_doc}, upsert=True)
         return self.collection.find_one({'name': name})

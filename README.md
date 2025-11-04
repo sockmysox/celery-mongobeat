@@ -111,13 +111,15 @@ task_doc = manager.create_interval_task(
 )
 print(f"Upserted interval task '{task_doc['name']}' with ID: {task_doc['_id']}")
 
-# Example: Create a task with a description
+# Example: Create a task with a description and other custom fields
 manager.create_crontab_task(
     name='daily-report',
     task='your_project.tasks.generate_report',
     minute='0',
     hour='4',  # Run at 4:00 AM daily
-    description='This is a custom description for the daily report task.'
+    description='This is a custom description for the daily report task.',
+    owner='data-science-team',  # Custom field
+    version='1.2'               # Custom field
 )
 
 # Example: Create a task that runs 5 times and then stops
@@ -144,7 +146,7 @@ for task in enabled_interval_tasks:
 
 The `create_*_task` methods are designed to be flexible. You can use Python's keyword argument unpacking (`**`) to create tasks from a dictionary. This is especially useful when processing data from an API or another data source.
 
-Any extra keys in the dictionary that do not match a method parameter will be safely ignored.
+Any extra keys in the dictionary that do not match a defined method parameter will be saved as custom fields in the task document.
 
 ```python
 # Example data that might come from a web form or API
@@ -155,7 +157,7 @@ task_data = {
     'period': 'minutes',
     'args': [12345],
     'metadata': 'Created by API endpoint /tasks',  # This key will be ignored
-    'request_id': 'xyz-789'  # This key will also be ignored
+    'request_id': 'xyz-789'                        # This key will also be ignored
 }
 
 task_doc = manager.create_interval_task(**task_data)

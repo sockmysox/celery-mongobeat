@@ -388,3 +388,23 @@ class TestScheduleManager:
             tzinfo=datetime.timezone.utc
         )
         assert abs(serialized_dt_from_list_aware - now) < datetime.timedelta(seconds=1)
+
+    def test_create_task_from_dictionary(self, manager):
+        """Test creating a task by unpacking a dictionary with custom fields."""
+        task_data = {
+            'name': 'task-from-dict',
+            'task': 'tasks.dict_task',
+            'every': 30,
+            'period': 'minutes',
+            'description': 'A task created from a dictionary.',
+            'display_name': 'My Dictionary Task'  # Custom field
+        }
+
+        # Use dictionary unpacking to pass all data
+        created_doc = manager.create_interval_task(**task_data)
+        assert created_doc is not None
+
+        # Verify that the custom field was saved correctly
+        assert created_doc['display_name'] == 'My Dictionary Task'
+        assert created_doc['description'] == 'A task created from a dictionary.'
+        assert created_doc['interval']['every'] == 30
