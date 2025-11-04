@@ -42,6 +42,8 @@ class MongoScheduler(Scheduler):
         # declare it here to make it explicit for this subclass and to
         # satisfy static analysis tools.
         self._schedule = {}
+        # Stores the last run time of tasks as loaded from the database.
+        self._last_run_times: Dict[str, Optional[datetime.datetime]] = {}
         super().__init__(*args, **kwargs)
         self._last_db_load = time.monotonic()
         self.max_interval = self.app.conf.beat_max_loop_interval or 300
@@ -108,9 +110,6 @@ class MongoScheduler(Scheduler):
             total_run_count=doc.get('total_run_count', 0),
             app=self.app
         )
-        # Store the original last_run_at from the database on the entry.
-        # This is used by sync() to detect if the task has run.
-        entry._last_run_at = doc.get('last_run_at')
         # Store max_run_count on the entry to check against in sync()
         entry.max_run_count = doc.get('max_run_count')
         return entry
@@ -172,8 +171,11 @@ class MongoScheduler(Scheduler):
 
         logger.debug("Reading schedule from MongoDB...")
         db_schedule: Dict[str, ScheduleEntry] = {}
+        self._last_run_times.clear()  # Clear previous state before reloading
         for doc in self._collection.find({'enabled': True}):
             try:
+                # Store the original last_run_at time for later comparison in sync()
+                self._last_run_times[doc['name']] = doc.get('last_run_at')
                 entry = self._entry_from_document(doc)
                 db_schedule[entry.name] = entry
             except Exception as e:
@@ -199,8 +201,10 @@ class MongoScheduler(Scheduler):
 
         logger.debug('Syncing schedule to MongoDB...')
         for entry in self.schedule.values():
-            # We only sync entries that were loaded from the database, marked by `_last_run_at`.
-            if hasattr(entry, '_last_run_at') and entry.last_run_at != entry._last_run_at:
+            # Get the last run time as it was when we loaded it from the DB.
+            last_run_from_db = self._last_run_times.get(entry.name)
+            # If the task has run, its last_run_at will have been updated.
+            if entry.last_run_at != last_run_from_db:
                 logger.debug(f"Preparing to update task state for '{entry.name}' in database.")
                 update_fields = {
                     'last_run_at': entry.last_run_at,
@@ -208,18 +212,19 @@ class MongoScheduler(Scheduler):
                 }
 
                 # If max_run_count is set and reached, disable the task.
-                if entry.max_run_count is not None and entry.total_run_count >= entry.max_run_count:
+                # We use getattr because the attribute is only set if max_run_count is in the DB doc.
+                if getattr(entry, 'max_run_count', None) is not None and entry.total_run_count >= entry.max_run_count:
                     logger.info(
                         f"Task '{entry.name}' has reached its max_run_count of {entry.max_run_count}. "
                         f"Disabling task."
                     )
                     update_fields['enabled'] = False
 
-                self._collection.update_one({'name': entry.name}, {'$set': update_fields})
-
-                # Update our in-memory copy to prevent re-syncing if the task doesn't run again.
-                entry._last_run_at = entry.last_run_at
-                logger.info(f"Synced task '{entry.name}' to MongoDB.")
+                result = self._collection.update_one({'name': entry.name}, {'$set': update_fields})
+                if result.modified_count:
+                    # Update our in-memory copy of the last run time to prevent re-syncing.
+                    self._last_run_times[entry.name] = entry.last_run_at
+                    logger.info(f"Synced task '{entry.name}' to MongoDB.")
 
 
     def close(self):

@@ -110,6 +110,39 @@ class TestMongoScheduler:
         assert abs(db_last_run_at - entry.last_run_at).total_seconds() < 1
         assert task_doc['total_run_count'] == 1
 
+    def test_sync_multiple_runs(self, scheduler, manager):
+        """Test that sync() correctly updates total_run_count over multiple runs."""
+        manager.create_interval_task('multi-run-task', 'tasks.test', every=1, period='seconds')
+
+        # --- First Run ---
+        # Force a reload to get the task
+        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
+        s = scheduler.schedule
+        entry = s['multi-run-task']
+
+        # Simulate first run
+        first_run_time = scheduler.app.now()
+        entry.last_run_at = first_run_time
+        entry.total_run_count += 1
+        scheduler.sync()
+
+        # Verify first run state
+        task_doc_1 = manager.get_task(name='multi-run-task')
+        assert task_doc_1['total_run_count'] == 1
+
+        # --- Second Run (without a full schedule reload) ---
+        # Simulate a second run by updating the same entry object
+        second_run_time = scheduler.app.now()
+        entry.last_run_at = second_run_time
+        entry.total_run_count += 1
+        scheduler.sync()
+
+        # Verify second run state
+        task_doc_2 = manager.get_task(name='multi-run-task')
+        assert task_doc_2['total_run_count'] == 2
+        db_last_run_at_2 = task_doc_2['last_run_at'].replace(tzinfo=datetime.timezone.utc)
+        assert abs(db_last_run_at_2 - second_run_time).total_seconds() < 1
+
     def test_sync_disables_task_on_max_run_count(self, scheduler, manager):
         """
         Test that sync() disables a task when it reaches its max_run_count.
