@@ -44,6 +44,8 @@ class MongoScheduler(Scheduler):
         self._schedule = {}
         # Stores the last run time of tasks as loaded from the database.
         self._last_run_times: Dict[str, Optional[datetime.datetime]] = {}
+        # Stores the max run count for tasks that have one.
+        self._max_run_counts: Dict[str, Optional[int]] = {}
         super().__init__(*args, **kwargs)
         self._last_db_load = time.monotonic()
         self.max_interval = self.app.conf.beat_max_loop_interval or 300
@@ -99,20 +101,22 @@ class MongoScheduler(Scheduler):
             doc = self._decode_keys(doc)
 
         schedule = self._schedule_from_document(doc)
-        entry = ScheduleEntry(
-            name=doc['name'],
-            task=doc['task'],
-            schedule=schedule,
-            args=doc.get('args', []),  # type: ignore
-            kwargs=doc.get('kwargs', {}),  # type: ignore
-            options=doc.get('options', {}),  # type: ignore
-            last_run_at=doc.get('last_run_at', self.app.now()),
-            total_run_count=doc.get('total_run_count', 0),
-            app=self.app
-        )
-        # Store max_run_count on the entry to check against in sync()
-        entry.max_run_count = doc.get('max_run_count')
-        return entry
+
+        # Construct the entry with only the arguments that ScheduleEntry expects.
+        # This prevents TypeErrors if the document contains extra fields.
+        entry_kwargs = {
+            'name': doc['name'],
+            'task': doc['task'],
+            'schedule': schedule,
+            'args': doc.get('args', []),
+            'kwargs': doc.get('kwargs', {}),
+            'options': doc.get('options', {}),
+            'last_run_at': doc.get('last_run_at', self.app.now()),
+            'total_run_count': doc.get('total_run_count', 0),
+            'app': self.app
+        }
+
+        return ScheduleEntry(**entry_kwargs)
 
     def _schedule_from_document(self, doc: Dict[str, Any]) -> Union[schedule, crontab, solar]:
         """Creates a Celery schedule object from a MongoDB document."""
@@ -171,11 +175,14 @@ class MongoScheduler(Scheduler):
 
         logger.debug("Reading schedule from MongoDB...")
         db_schedule: Dict[str, ScheduleEntry] = {}
-        self._last_run_times.clear()  # Clear previous state before reloading
+        # Clear previous in-memory state before reloading
+        self._last_run_times.clear()
+        self._max_run_counts.clear()
         for doc in self._collection.find({'enabled': True}):
             try:
                 # Store the original last_run_at time for later comparison in sync()
                 self._last_run_times[doc['name']] = doc.get('last_run_at')
+                self._max_run_counts[doc['name']] = doc.get('max_run_count')
                 entry = self._entry_from_document(doc)
                 db_schedule[entry.name] = entry
             except Exception as e:
@@ -212,10 +219,10 @@ class MongoScheduler(Scheduler):
                 }
 
                 # If max_run_count is set and reached, disable the task.
-                # We use getattr because the attribute is only set if max_run_count is in the DB doc.
-                if getattr(entry, 'max_run_count', None) is not None and entry.total_run_count >= entry.max_run_count:
+                max_runs = self._max_run_counts.get(entry.name)
+                if max_runs is not None and entry.total_run_count >= max_runs:
                     logger.info(
-                        f"Task '{entry.name}' has reached its max_run_count of {entry.max_run_count}. "
+                        f"Task '{entry.name}' has reached its max_run_count of {max_runs}. "
                         f"Disabling task."
                     )
                     update_fields['enabled'] = False
