@@ -102,7 +102,7 @@ class TestMongoScheduler:
         scheduler.sync()
 
         # Verify the document in the DB was updated
-        task_doc = manager.get_task('sync-test-task')
+        task_doc = manager.get_task(name='sync-test-task')
         assert task_doc is not None
         # mongomock may return a naive datetime, so we make it aware before comparing.
         db_last_run_at = task_doc['last_run_at'].replace(tzinfo=datetime.timezone.utc)
@@ -131,7 +131,7 @@ class TestMongoScheduler:
         scheduler.sync()
 
         # Verify the task is now disabled in the database
-        task_doc = manager.get_task('limited-run-task')
+        task_doc = manager.get_task(name='limited-run-task')
         assert task_doc is not None
         assert task_doc['enabled'] is False
         assert task_doc['total_run_count'] == 3
@@ -305,14 +305,19 @@ class TestScheduleManager:
         task_id = created_doc['_id']
 
         # 2. Test retrieval: The retrieved task should have the correct data.
-        task = manager.get_task('test-get')
+        task = manager.get_task(name='test-get')
         assert task is not None
         assert task['_id'] == task_id
         assert task['task'] == 'tasks.get'
         assert task['args'] == [1]
         assert task['kwargs'] == {'a': 1}
 
-        # 3. Test update: Updating the same task should return a document with the same ObjectId.
+        # 3. Test retrieval by ID: The retrieved task should be the same.
+        task_by_id = manager.get_task(id=task_id)
+        assert task_by_id is not None
+        assert task_by_id['name'] == 'test-get'
+
+        # 4. Test update: Updating the same task should return a document with the same ObjectId.
         updated_doc = manager.create_interval_task('test-get', 'tasks.get.updated', 2, 'seconds')
         assert isinstance(updated_doc, dict)
         assert updated_doc['_id'] == task_id
@@ -321,19 +326,28 @@ class TestScheduleManager:
         """Test enabling and disabling a task."""
         manager.create_interval_task('test-enable', 'tasks.test', 1, 'seconds')
         manager.disable_task('test-enable')
-        task = manager.get_task('test-enable')
+        task = manager.get_task(name='test-enable')
         assert task['enabled'] is False
 
         manager.enable_task('test-enable')
-        task = manager.get_task('test-enable')
+        task = manager.get_task(name='test-enable')
         assert task['enabled'] is True
 
     def test_delete_task(self, manager):
         """Test deleting a task."""
-        manager.create_interval_task('test-delete', 'tasks.test', 1, 'seconds')
-        assert manager.get_task('test-delete') is not None
-        manager.delete_task('test-delete')
-        assert manager.get_task('test-delete') is None
+        # Create two tasks to test deletion by name and by id
+        task1 = manager.create_interval_task('delete-by-name', 'tasks.test', 1, 'seconds')
+        task2 = manager.create_interval_task('delete-by-id', 'tasks.test', 1, 'seconds')
+
+        # Verify deletion by name
+        assert manager.get_task(name='delete-by-name') is not None
+        manager.delete_task(name='delete-by-name')
+        assert manager.get_task(name='delete-by-name') is None
+
+        # Verify deletion by id
+        assert manager.get_task(id=task2['_id']) is not None
+        manager.delete_task(id=task2['_id'])
+        assert manager.get_task(name='test-delete') is None
 
     def test_get_tasks_with_filters(self, manager):
         """Test filtering tasks with get_tasks."""
@@ -368,7 +382,7 @@ class TestScheduleManager:
         )
 
         # Test get_task with serialization
-        task = manager.get_task('serialize-test', serialize=True)
+        task = manager.get_task(name='serialize-test', serialize=True)
         assert task is not None
         assert isinstance(task['_id'], str)
         # Parse the serialized datetime string and compare with a tolerance
@@ -408,3 +422,17 @@ class TestScheduleManager:
         assert created_doc['display_name'] == 'My Dictionary Task'
         assert created_doc['description'] == 'A task created from a dictionary.'
         assert created_doc['interval']['every'] == 30
+
+    def test_create_task_with_custom_fields(self, manager):
+        """Test that arbitrary keyword arguments are saved as custom fields."""
+        manager.create_interval_task(
+            'task-with-custom-fields',
+            'tasks.test',
+            1, 'seconds',
+            owner='data-team',
+            priority=100
+        )
+        task = manager.get_task(name='task-with-custom-fields')
+        assert task is not None
+        assert task['owner'] == 'data-team'
+        assert task['priority'] == 100

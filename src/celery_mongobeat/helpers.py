@@ -3,7 +3,7 @@ Provides helper classes for programmatically managing Celery Beat schedules
 in MongoDB.
 """
 import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from bson import ObjectId
 from celery import Celery, current_app as celery_current_app
@@ -230,26 +230,50 @@ class ScheduleManager:
         """
         self.collection.update_one({'name': name}, {'$set': {'enabled': True}})
 
-    def get_task(self, name: str, serialize: bool = False) -> Optional[Dict[str, Any]]:
+    def get_task(self, name: Optional[str] = None, id: Optional[Union[str, ObjectId]] = None, serialize: bool = False) -> Optional[Dict[str, Any]]:
         """
-        Retrieves a task document from the database by its unique name.
+        Retrieves a task document from the database by its unique name or _id.
 
-        :param name: The unique name of the task to retrieve.
+        Provide either the `name` or the `id` of the task.
+
+        :param name: The unique name (str) of the task to retrieve.
+        :param id: The _id (str or ObjectId) of the task to retrieve.
         :param serialize: If True, converts BSON types to JSON-friendly types.
         :return: A dictionary representing the task document, or None if not found.
         """
-        task = self.collection.find_one({'name': name})
+        if (name is None and id is None) or (name is not None and id is not None):
+            raise ValueError("Provide either the 'name' or 'id' of the task, but not both.")
+
+        query = {}
+        if id:
+            query['_id'] = ObjectId(id) if isinstance(id, str) else id
+        else:
+            query['name'] = name
+
+        task = self.collection.find_one(query)
         if task and serialize:
             return self._sanitize_task(task)
         return task
 
-    def delete_task(self, name: str):
+    def delete_task(self, name: Optional[str] = None, id: Optional[Union[str, ObjectId]] = None):
         """
-        Permanently deletes a task from the schedule by its unique name.
+        Permanently deletes a task from the schedule by its unique name or _id.
 
-        :param name: The unique name of the task to delete.
+        Provide either the `name` or the `id` of the task.
+
+        :param name: The unique name (str) of the task to delete.
+        :param id: The _id (str or ObjectId) of the task to delete.
         """
-        self.collection.delete_one({'name': name})
+        if (name is None and id is None) or (name is not None and id is not None):
+            raise ValueError("Provide either the 'name' or 'id' of the task, but not both.")
+
+        query = {}
+        if id:
+            query['_id'] = ObjectId(id) if isinstance(id, str) else id
+        else:
+            query['name'] = name
+
+        self.collection.delete_one(query)
 
     def get_tasks(self, serialize: bool = False, **filters: Any) -> List[Dict[str, Any]]:
         """

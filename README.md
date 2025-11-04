@@ -132,15 +132,25 @@ manager.create_interval_task(
 )
 print("Upserted limited-run task: 'run-five-times-task'")
 
-# Example: Disable a task
-manager.disable_task('my-periodic-task')
-print("Disabled task: 'my-periodic-task'")
+# Example: Retrieve a task by its name or ID
+task_by_name = manager.get_task(name='my-periodic-task')
+task_by_id = manager.get_task(id=task_doc['_id'])
+print(f"Retrieved task '{task_by_name['name']}' by its name.")
+print(f"Retrieved task '{task_by_id['name']}' by its ID.")
 
-# Example: Get all enabled interval tasks
-enabled_interval_tasks = manager.get_tasks(enabled=True, schedule_type='interval')
-print(f"Found {len(enabled_interval_tasks)} enabled interval tasks.")
-for task in enabled_interval_tasks:
-    print(f" - {task['name']}")
+# Example: Disable a task (the task remains in the database)
+manager.disable_task(name='my-periodic-task')
+print("Disabled task 'my-periodic-task'.")
+
+# Example: Delete a task (the task is permanently removed)
+manager.delete_task(name='run-five-times-task')
+print("Deleted task 'run-five-times-task'.")
+
+# Example: Get all remaining enabled tasks
+remaining_tasks = manager.get_tasks(enabled=True)
+print(f"Found {len(remaining_tasks)} remaining enabled tasks.")
+for task in remaining_tasks:
+    print(f" - {task['name']} (ID: {task['_id']})")
 
 ### Creating Tasks from a Dictionary
 
