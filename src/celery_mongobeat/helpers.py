@@ -214,6 +214,48 @@ class ScheduleManager:
         self.collection.update_one({'name': name}, {'$set': schedule_doc}, upsert=True)
         return self.collection.find_one({'name': name})
 
+    def update_task(self, name: Optional[str] = None, id: Optional[Union[str, ObjectId]] = None, **data: Any) -> Optional[Dict[str, Any]]:
+        """
+        Updates an existing task in the database.
+
+        You can identify the task to update in one of three ways:
+        1. By providing the `name` keyword argument.
+        2. By providing the `id` keyword argument.
+        3. By including either `_id` or `name` in the `data` dictionary.
+
+        :param name: The unique name (str) of the task to update.
+        :param id: The _id (str or ObjectId) of the task to update.
+        :param data: A dictionary of fields to update on the task document.
+        :return: The full, updated document, or None if the task was not found.
+        """
+        query = {}
+        update_data = data.copy()
+
+        if id:
+            query['_id'] = ObjectId(id) if isinstance(id, str) else id
+        elif name:
+            query['name'] = name
+        elif '_id' in update_data:
+            query['_id'] = ObjectId(update_data.pop('_id'))
+        elif 'id' in update_data:
+            # Also handle 'id' as an alias for '_id'
+            query['_id'] = ObjectId(update_data.pop('id'))
+        elif 'name' in update_data:
+            query['name'] = update_data['name']
+        else:
+            raise ValueError("No identifier found. Provide 'name', 'id', or include '_id', 'id', or 'name' in the data payload.")
+
+        # Ensure immutable or identifying fields are not part of the $set payload
+        update_data.pop('_id', None)
+        update_data.pop('name', None)
+
+        if not update_data:
+            # If there's nothing to update, just return the existing task
+            return self.collection.find_one(query)
+
+        self.collection.update_one(query, {'$set': update_data})
+        return self.collection.find_one(query)
+
     def disable_task(self, name: str):
         """
         Disables a task by its unique name, preventing it from being scheduled.

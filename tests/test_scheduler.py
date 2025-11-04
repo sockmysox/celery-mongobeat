@@ -436,3 +436,33 @@ class TestScheduleManager:
         assert task is not None
         assert task['owner'] == 'data-team'
         assert task['priority'] == 100
+
+    def test_update_task(self, manager):
+        """Test updating a task using various identification methods."""
+        # Create an initial task
+        created_doc = manager.create_interval_task(
+            'task-to-update', 'tasks.test', 1, 'seconds', description='Initial'
+        )
+        task_id = created_doc['_id']
+
+        # 1. Update by name
+        updated_doc_by_name = manager.update_task(name='task-to-update', description='Updated by name')
+        assert updated_doc_by_name is not None
+        assert updated_doc_by_name['description'] == 'Updated by name'
+
+        # 2. Update by ID
+        updated_doc_by_id = manager.update_task(id=task_id, description='Updated by ID')
+        assert updated_doc_by_id is not None
+        assert updated_doc_by_id['description'] == 'Updated by ID'
+
+        # 3. Update using `name` from data payload
+        updated_doc_from_data_name = manager.update_task(description='Updated from data name', name='task-to-update')
+        assert updated_doc_from_data_name['description'] == 'Updated from data name'
+
+        # 4. Update using `_id` from data payload
+        updated_doc_from_data_id = manager.update_task(description='Updated from data id', _id=task_id)
+        assert updated_doc_from_data_id['description'] == 'Updated from data id'
+
+        # 5. Update using `id` (as string) from data payload
+        updated_doc_from_data_id_str = manager.update_task(description='Updated from data id string', id=str(task_id))
+        assert updated_doc_from_data_id_str['description'] == 'Updated from data id string'

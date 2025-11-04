@@ -138,6 +138,11 @@ task_by_id = manager.get_task(id=task_doc['_id'])
 print(f"Retrieved task '{task_by_name['name']}' by name.")
 print(f"Retrieved task '{task_by_id['name']}' by ID.")
 
+# Example: Update an existing task's description
+updated_task = manager.update_task(name='daily-report', description='This is the new description.')
+if updated_task:
+    print(f"Updated task '{updated_task['name']}' with new description: {updated_task['description']}")
+
 # Example: Disable a task (the task remains in the database)
 manager.disable_task(name='my-periodic-task')
 print("Disabled task 'my-periodic-task'.")
