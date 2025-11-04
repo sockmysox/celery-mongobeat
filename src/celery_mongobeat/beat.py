@@ -46,6 +46,8 @@ class MongoScheduler(Scheduler):
         self._last_run_times: Dict[str, Optional[datetime.datetime]] = {}
         # Stores the max run count for tasks that have one.
         self._max_run_counts: Dict[str, Optional[int]] = {}
+        # Stores the total run count of tasks as loaded from the database.
+        self._total_run_counts: Dict[str, int] = {}
         super().__init__(*args, **kwargs)
         self._last_db_load = time.monotonic()
         self.max_interval = self.app.conf.beat_max_loop_interval or 300
@@ -169,31 +171,37 @@ class MongoScheduler(Scheduler):
             return self._schedule
         self.install_default_entries(self.app.conf.beat_schedule)
 
+        # On a reload, we start with a fresh schedule containing only the static entries.
+        # This ensures that tasks deleted from the DB are removed from the scheduler.
+        new_schedule = self.app.conf.beat_schedule.copy()
+
         if self._collection is None:
             logger.warning("MongoDB collection not available. Using static schedule only.")
+            self._schedule = self.app.conf.beat_schedule
             return self._schedule
 
         logger.debug("Reading schedule from MongoDB...")
-        db_schedule: Dict[str, ScheduleEntry] = {}
         # Clear previous in-memory state before reloading
         self._last_run_times.clear()
         self._max_run_counts.clear()
+        self._total_run_counts.clear()
         for doc in self._collection.find({'enabled': True}):
             try:
                 # Store the original last_run_at time for later comparison in sync()
                 self._last_run_times[doc['name']] = doc.get('last_run_at')
                 self._max_run_counts[doc['name']] = doc.get('max_run_count')
+                self._total_run_counts[doc['name']] = doc.get('total_run_count', 0)
                 entry = self._entry_from_document(doc)
-                db_schedule[entry.name] = entry
+                # Entries from the DB will overwrite static ones with the same name.
+                new_schedule[entry.name] = entry
             except Exception as e:
                 logger.error(
                     f"Failed to load schedule entry '{doc.get('name', 'N/A')}': {e}",
                     exc_info=True
                 )
 
-        # Merge the dynamic schedule from the DB into the static one.
-        # Entries from the DB will overwrite static ones with the same name.
-        self._schedule.update(db_schedule)
+        # Replace the old schedule with the newly built one.
+        self._schedule = new_schedule
         return self._schedule
 
     def sync(self):
@@ -209,9 +217,13 @@ class MongoScheduler(Scheduler):
         logger.debug('Syncing schedule to MongoDB...')
         for entry in self.schedule.values():
             # Get the last run time as it was when we loaded it from the DB.
-            last_run_from_db = self._last_run_times.get(entry.name)
-            # If the task has run, its last_run_at will have been updated.
-            if entry.last_run_at != last_run_from_db:
+            last_run_from_db = self._last_run_times.get(entry.name, None)
+            total_runs_from_db = self._total_run_counts.get(entry.name, 0)
+
+            # A task needs to be synced if its last run time or run count has changed.
+            has_run = entry.last_run_at != last_run_from_db
+            count_changed = entry.total_run_count != total_runs_from_db
+            if has_run or count_changed:
                 logger.debug(f"Preparing to update task state for '{entry.name}' in database.")
                 update_fields = {
                     'last_run_at': entry.last_run_at,
@@ -231,6 +243,7 @@ class MongoScheduler(Scheduler):
                 if result.modified_count:
                     # Update our in-memory copy of the last run time to prevent re-syncing.
                     self._last_run_times[entry.name] = entry.last_run_at
+                    self._total_run_counts[entry.name] = entry.total_run_count
                     logger.info(f"Synced task '{entry.name}' to MongoDB.")
 
 

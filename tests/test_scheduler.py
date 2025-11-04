@@ -143,6 +143,34 @@ class TestMongoScheduler:
         db_last_run_at_2 = task_doc_2['last_run_at'].replace(tzinfo=datetime.timezone.utc)
         assert abs(db_last_run_at_2 - second_run_time).total_seconds() < 1
 
+    def test_sync_persists_state(self, scheduler, manager):
+        """
+        Test that sync() correctly persists last_run_at and total_run_count
+        after a task has been run by the beat.
+        """
+        # 1. Create the task
+        manager.create_interval_task('state-sync-test', 'tasks.test', every=1, period='seconds')
+
+        # 2. Force the scheduler to load the task from the DB
+        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
+        s = scheduler.schedule
+        entry = s['state-sync-test']
+        assert entry.total_run_count == 0  # Should be 0 initially
+
+        # 3. Simulate Celery Beat running the task
+        # This is what `beat.tick()` does internally
+        run_time = scheduler.app.now()
+        entry.last_run_at = run_time
+        entry.total_run_count += 1
+
+        # 4. Call sync() to persist the changes
+        scheduler.sync()
+
+        # 5. Verify the state in the database
+        task_doc = manager.get_task(name='state-sync-test')
+        assert task_doc['total_run_count'] == 1
+        assert abs(task_doc['last_run_at'].replace(tzinfo=datetime.timezone.utc) - run_time).total_seconds() < 1
+
     def test_sync_disables_task_on_max_run_count(self, scheduler, manager):
         """
         Test that sync() disables a task when it reaches its max_run_count.
@@ -310,6 +338,27 @@ class TestMongoScheduler:
         scheduler_with_default = MongoScheduler(app=celery_app)
         # Verify it falls back to the hardcoded default of 300
         assert scheduler_with_default.max_interval == 300
+
+    def test_deleted_task_is_removed_from_schedule(self, scheduler, manager, monkeypatch):
+        """Test that a task deleted from the DB is removed from the schedule on reload."""
+        # 1. Create and load a task into the schedule
+        manager.create_interval_task('task-to-be-deleted', 'tasks.test', 10, 'seconds')
+
+        # Force a reload to get the task into the scheduler's memory
+        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
+        monkeypatch.setattr(scheduler, 'install_default_entries', lambda _: None)
+        s1 = scheduler.schedule
+        assert 'task-to-be-deleted' in s1
+
+        # 2. Delete the task from the database
+        manager.delete_task(name='task-to-be-deleted')
+
+        # 3. Force another reload
+        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
+        s2 = scheduler.schedule
+
+        # 4. Verify the task is no longer in the schedule
+        assert 'task-to-be-deleted' not in s2
 
 
 class TestScheduleManager:
