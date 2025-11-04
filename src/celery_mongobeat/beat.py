@@ -166,7 +166,7 @@ class MongoScheduler(Scheduler):
             return self._schedule
         self.install_default_entries(self.app.conf.beat_schedule)
 
-        if not self._collection:
+        if self._collection is None:
             logger.warning("MongoDB collection not available. Using static schedule only.")
             return self._schedule
 
@@ -194,7 +194,7 @@ class MongoScheduler(Scheduler):
         It iterates through the schedule and saves the `last_run_at` and
         `total_run_count` for any task that has been run.
         """
-        if not self._collection:
+        if self._collection is None:
             return
 
         logger.debug('Syncing schedule to MongoDB...')

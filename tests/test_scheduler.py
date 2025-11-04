@@ -261,6 +261,23 @@ class TestMongoScheduler:
         assert entry.task == 'tasks.db_version'
         assert entry.schedule.run_every.total_seconds() == 30
 
+    def test_max_interval_configuration(self, celery_app, monkeypatch):
+        """Test that max_interval is set correctly from config and has a default."""
+        # To avoid real DB connections, we patch MongoClient for this test
+        monkeypatch.setattr('src.celery_mongobeat.beat.MongoClient', lambda *args, **kwargs: MagicMock())
+
+        # --- Test Case 1: Value is set in config ---
+        celery_app.conf.beat_max_loop_interval = 60
+        scheduler_with_config = MongoScheduler(app=celery_app)
+        assert scheduler_with_config.max_interval == 60
+
+        # --- Test Case 2: Value is NOT set in config ---
+        # The parent Scheduler sets beat_max_loop_interval to None if not present
+        celery_app.conf.beat_max_loop_interval = None
+        scheduler_with_default = MongoScheduler(app=celery_app)
+        # Verify it falls back to the hardcoded default of 300
+        assert scheduler_with_default.max_interval == 300
+
 
 class TestScheduleManager:
     """
