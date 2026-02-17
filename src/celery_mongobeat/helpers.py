@@ -264,13 +264,20 @@ class ScheduleManager:
         """
         self.collection.update_one({'name': name}, {'$set': {'enabled': False}})
 
-    def enable_task(self, name: str):
+    def enable_task(self, name: str, reset_schedule: bool = False):
         """
         Enables a task by its unique name, allowing it to be scheduled.
 
         :param name: The unique name of the task to enable.
+        :param reset_schedule: If True, resets the task's 'last_run_at' to the
+                               current time. This prevents the task from running
+                               immediately if it was disabled for a long time.
+                               Defaults to False to preserve schedule phase.
         """
-        self.collection.update_one({'name': name}, {'$set': {'enabled': True}})
+        update_fields = {'enabled': True}
+        if reset_schedule:
+            update_fields['last_run_at'] = datetime.datetime.now(datetime.timezone.utc)
+        self.collection.update_one({'name': name}, {'$set': update_fields})
 
     def get_task(self, name: Optional[str] = None, id: Optional[Union[str, ObjectId]] = None, serialize: bool = False) -> Optional[Dict[str, Any]]:
         """

@@ -62,11 +62,12 @@ class TestMongoScheduler:
 
         assert mock_collection.count_documents({}) == 4
 
-        # Force a reload from the database to bypass the cache
-        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
-
         # Prevent default entries from being installed to isolate DB loading logic
         monkeypatch.setattr(scheduler, 'install_default_entries', lambda _: None)
+
+        # Explicitly reload the schedule.
+        # In v0.2.0, assessing the .schedule property no longer triggers a reload.
+        scheduler.reload_schedule()
 
         # The `schedule` property should read from the DB
         s = scheduler.schedule
@@ -83,14 +84,36 @@ class TestMongoScheduler:
         assert isinstance(s['solar-task'].schedule, solar)
         assert s['solar-task'].schedule.event == 'sunrise'
 
+    def test_disabled_task_past_due_not_scheduled(self, scheduler, manager, monkeypatch):
+        """
+        Verify that a disabled task is not scheduled even if it is past its run time.
+        """
+        # Create a task and disable it
+        manager.create_interval_task('disabled-overdue-task', 'tasks.test', every=10, period='seconds')
+        manager.disable_task('disabled-overdue-task')
+
+        # Set last_run_at to a time in the past so it would be due
+        past_time = scheduler.app.now() - datetime.timedelta(minutes=10)
+        manager.collection.update_one(
+            {'name': 'disabled-overdue-task'},
+            {'$set': {'last_run_at': past_time}}
+        )
+
+        # Force a reload from the database
+        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
+        monkeypatch.setattr(scheduler, 'install_default_entries', lambda _: None)
+
+        s = scheduler.schedule
+        assert 'disabled-overdue-task' not in s
+
     def test_sync_updates_last_run_at(self, scheduler, manager):
         """
         Test that sync() persists the last_run_at and total_run_count fields.
         """
         manager.create_interval_task('sync-test-task', 'tasks.test', every=1, period='seconds')
 
-        # Force a reload from the database to bypass the cache
-        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
+        # Explicitly reload the schedule to pick up the new task
+        scheduler.reload_schedule()
 
         # Simulate the beat running the task
         s = scheduler.schedule
@@ -115,8 +138,8 @@ class TestMongoScheduler:
         manager.create_interval_task('multi-run-task', 'tasks.test', every=1, period='seconds')
 
         # --- First Run ---
-        # Force a reload to get the task
-        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
+        # Explicitly reload the schedule to pick up the new task
+        scheduler.reload_schedule()
         s = scheduler.schedule
         entry = s['multi-run-task']
 
@@ -152,7 +175,7 @@ class TestMongoScheduler:
         manager.create_interval_task('state-sync-test', 'tasks.test', every=1, period='seconds')
 
         # 2. Force the scheduler to load the task from the DB
-        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
+        scheduler.reload_schedule()
         s = scheduler.schedule
         entry = s['state-sync-test']
         assert entry.total_run_count == 0  # Should be 0 initially
@@ -180,7 +203,7 @@ class TestMongoScheduler:
         )
 
         # Force a reload from the database to bypass the cache
-        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
+        scheduler.reload_schedule()
 
         # Simulate the beat running the task 3 times
         s = scheduler.schedule
@@ -207,36 +230,38 @@ class TestMongoScheduler:
         })
 
         # Force a reload from the database to bypass the cache
-        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
+        scheduler.reload_schedule()
 
         s = scheduler.schedule
         assert 'invalid_task' not in s
         assert "Failed to load schedule entry 'invalid_task'" in caplog.text
-        assert "missing a valid schedule type" in caplog.text
+        assert "has no valid schedule" in caplog.text
 
-    def test_schedule_caching(self, scheduler, monkeypatch):
-        """Test that the schedule is not reloaded from the DB on every tick."""
-        # Patch the collection's find method to track calls
-        # Use a mock with a side_effect to wrap the original method
-        mock_find = MagicMock(side_effect=scheduler._collection.find)
-        monkeypatch.setattr(scheduler._collection, 'find', mock_find)
+    def test_tick_caching_behavior(self, celery_app, mock_mongo_client, monkeypatch):
+        """Test that tick() only reloads the schedule after max_interval has passed."""
+        # Patch MongoClient to use the mock client for the scheduler we will create.
+        monkeypatch.setattr('src.celery_mongobeat.beat.MongoClient', lambda *args, **kwargs: mock_mongo_client)
 
-        # Force the cache to be considered stale for the first access in this test
+        # Get the underlying mock collection that the scheduler will use.
+        collection = mock_mongo_client[celery_app.conf.mongodb_scheduler_db][celery_app.conf.mongodb_scheduler_collection]
+
+        # Patch the collection's find method to track DB calls BEFORE the scheduler is created.
+        mock_find = MagicMock(side_effect=collection.find)
+        monkeypatch.setattr(collection, 'find', mock_find)
+
+        # Now, create the scheduler. Its __init__ calls reload_schedule(), which calls find().
+        scheduler = MongoScheduler(app=celery_app)
+        mock_find.assert_called_once()  # Should be called once during initialization.
+
+        # A subsequent tick() immediately after should NOT trigger a reload.
+        scheduler.tick()
+        mock_find.assert_called_once()  # The call count should still be 1.
+
+        # Now, force the cache to expire by manipulating the internal timestamp.
         scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
 
-        # First access, should call find()
-        _ = scheduler.schedule
-        mock_find.assert_called_once()
-
-        # Second access within max_interval, should NOT call find() again
-        _ = scheduler.schedule
-        mock_find.assert_called_once()  # Still 1 call
-
-        # Force the cache to expire
-        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
-
-        # Third access, should call find() again
-        _ = scheduler.schedule
+        # This tick() should now trigger a reload, calling find() again.
+        scheduler.tick()
         assert mock_find.call_count == 2
 
     def test_close_client(self, scheduler, monkeypatch):
@@ -288,7 +313,8 @@ class TestMongoScheduler:
         })
 
         monkeypatch.setattr(scheduler, 'install_default_entries', lambda _: None)
-        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
+        # Explicitly reload the schedule to pick up the new task
+        scheduler.reload_schedule()
 
         s = scheduler.schedule
         assert 'dotted-key-task' in s
@@ -312,7 +338,8 @@ class TestMongoScheduler:
         manager.create_interval_task('shared-task-name', 'tasks.db_version', every=30, period='seconds')
 
         monkeypatch.setattr(scheduler, 'install_default_entries', lambda _: None)
-        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
+        # Explicitly reload the schedule to merge DB tasks with static config
+        scheduler.reload_schedule()
 
         s = scheduler.schedule
         assert len(s) == 1
@@ -345,8 +372,9 @@ class TestMongoScheduler:
         manager.create_interval_task('task-to-be-deleted', 'tasks.test', 10, 'seconds')
 
         # Force a reload to get the task into the scheduler's memory
-        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
         monkeypatch.setattr(scheduler, 'install_default_entries', lambda _: None)
+        # Explicitly reload the schedule to pick up the new task
+        scheduler.reload_schedule()
         s1 = scheduler.schedule
         assert 'task-to-be-deleted' in s1
 
@@ -354,11 +382,51 @@ class TestMongoScheduler:
         manager.delete_task(name='task-to-be-deleted')
 
         # 3. Force another reload
-        scheduler._last_db_load = time.monotonic() - (scheduler.max_interval + 5)
+        # Explicitly reload the schedule to reflect the deletion
+        scheduler.reload_schedule()
         s2 = scheduler.schedule
 
         # 4. Verify the task is no longer in the schedule
         assert 'task-to-be-deleted' not in s2
+
+    def test_verify_last_run_at_update(self, scheduler, manager):
+        """
+        Test specifically that last_run_at is updated in the database after a task runs.
+        """
+        # 1. Setup: Create a task
+        task_name = 'test-last-run-update'
+        manager.create_interval_task(task_name, 'tasks.test', 10, 'seconds')
+
+        # Ensure initial state in DB is what we expect (last_run_at should be missing)
+        initial_doc = manager.get_task(name=task_name)
+        assert 'last_run_at' not in initial_doc
+
+        # 2. Load the schedule (Force reload to populate scheduler)
+        # Explicitly reload the schedule to pick up the new task
+        scheduler.reload_schedule()
+        schedule = scheduler.schedule
+        entry = schedule[task_name]
+
+        # 3. Simulate Task Execution
+        # Celery Beat updates the entry's last_run_at when it schedules the task
+        execution_time = datetime.datetime.now(datetime.timezone.utc)
+        entry.last_run_at = execution_time
+        entry.total_run_count += 1
+
+        # 4. Sync to Database
+        scheduler.sync()
+
+        # 5. Verify Database Update
+        updated_doc = manager.get_task(name=task_name)
+
+        # Handle potential timezone naivety from mongomock/pymongo in tests
+        db_last_run = updated_doc['last_run_at']
+        if db_last_run.tzinfo is None:
+            db_last_run = db_last_run.replace(tzinfo=datetime.timezone.utc)
+
+        # Allow for small precision differences
+        assert abs((db_last_run - execution_time).total_seconds()) < 1
+        assert updated_doc['total_run_count'] == 1
 
 
 class TestScheduleManager:
@@ -431,6 +499,39 @@ class TestScheduleManager:
         manager.enable_task('test-enable')
         task = manager.get_task(name='test-enable')
         assert task['enabled'] is True
+
+    def test_enable_task_reset_schedule(self, manager):
+        """
+        Test that enabling a task with reset_schedule=True updates last_run_at.
+        """
+        # 1. Create a task and manually set its last_run_at to the past
+        manager.create_interval_task('reset-schedule-task', 'tasks.test', 1, 'hours')
+        manager.disable_task('reset-schedule-task')
+
+        past_time = datetime.datetime(2000, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        manager.collection.update_one(
+            {'name': 'reset-schedule-task'},
+            {'$set': {'last_run_at': past_time}}
+        )
+
+        # 2. Enable without reset (default behavior)
+        manager.enable_task('reset-schedule-task', reset_schedule=False)
+        task = manager.get_task(name='reset-schedule-task')
+        # mongomock may return naive datetime
+        task_last_run = task['last_run_at'].replace(tzinfo=datetime.timezone.utc)
+        assert task_last_run == past_time
+
+        # 3. Disable again to simulate the cycle
+        manager.disable_task('reset-schedule-task')
+
+        # 4. Enable WITH reset
+        manager.enable_task('reset-schedule-task', reset_schedule=True)
+        task = manager.get_task(name='reset-schedule-task')
+
+        task_last_run = task['last_run_at'].replace(tzinfo=datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        # Verify last_run_at is close to now (within 1 second)
+        assert abs((now - task_last_run).total_seconds()) < 1
 
     def test_delete_task(self, manager):
         """Test deleting a task."""
